@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.0 - 2026-11-17
+- **Step indicators** under the connection panels: each step (Connect 365, Connect Exchange, Verify AD, Load data) shows its number, then turns amber while running, green with a check mark when done, red on error
+- "Load data" button restyled: stays readable while disabled
+- Tab names keep their underscores (e.g. MAILBOX_ONPREM, TENANT_LICENSES)
+- Screenshots added to the README (sensitive data blurred)
+
 ## 1.2.0 - 2026-11-17
 - **Infrastructure modes** at the top of the window: Full Cloud, Full Hybrid, Hybrid (365 + AD), On-Prem (Exchange + AD), AD only
 - Every source is now optional: Microsoft 365 is no longer required (works with Exchange 2016/2019 + AD only)

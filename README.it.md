@@ -17,6 +17,8 @@ Chi è on-prem e chi è già nel cloud, quanto spazio occupa ogni mailbox, chi h
 
 [English](README.md) · **Italiano**
 
+<img src="docs/07-overview.png" alt="Panoramica HybridScope" width="900">
+
 </div>
 
 ---
@@ -24,6 +26,7 @@ Chi è on-prem e chi è già nel cloud, quanto spazio occupa ogni mailbox, chi h
 ## Indice
 
 - [Funzionalità](#funzionalità)
+- [Screenshot](#screenshot)
 - [Requisiti](#requisiti)
 - [Avvio rapido](#avvio-rapido)
 - [Uso dell'interfaccia](#uso-dellinterfaccia)
@@ -56,12 +59,33 @@ Chi è on-prem e chi è già nel cloud, quanto spazio occupa ogni mailbox, chi h
 - **Funziona anche da PC fuori dominio**: credenziali Windows oppure utente e password di dominio inseriti a mano, con Kerberos.
 - **Modalità di infrastruttura**: *Full Cloud*, *Full Hybrid*, *Hybrid*, *On-Prem* o *AD*, selezionabili con un clic. L'app mostra e unisce solo le fonti che hai.
 - **Raggruppamento in tab** scelto dalla finestra: OU di primo livello, OU che contiene l'utente, lista unica oppure regole personalizzate.
+- **Indicatori di avanzamento**: Connetti 365 › Connetti Exchange › Verifica AD › Carica dati diventano verdi con una ✓ quando sono completati, gialli durante l'esecuzione e rossi in caso di errore.
 - Pulsante **Cambia account** per disconnettersi da Microsoft 365 e cancellare l'accesso salvato, e pulsante **Interrompi** per fermare un caricamento in corso.
 - **Modalità `-Auto`**: accesso con certificato per report pianificati. Mantiene una copia `HybridScope_LATEST.xlsx` e uno storico dell'andamento (utenti on-prem, spazio, % MFA).
 - Interfaccia in **italiano / inglese**.
 - **Sola lettura**: HybridScope non modifica nulla in AD, Exchange o Microsoft 365.
 
-> 📸 *Aggiungi gli screenshot in `docs/` e collegali qui, es. `![Panoramica](docs/overview.png)`.*
+## Screenshot
+
+**Panoramica**: conteggi per OU / gruppo, posizione delle mailbox, spazio, licenze, MFA e inattività a colpo d'occhio.
+
+![Panoramica](docs/07-overview.png)
+
+**Utenti**: una riga per utente, con i dati di AD, Exchange e Microsoft 365 uniti. Cerca, ordina, esporta.
+
+![Utenti](docs/08-users.png)
+
+**Modalità di infrastruttura**: un clic e la finestra mostra solo le connessioni che servono.
+
+| Full Hybrid | Full Cloud |
+|---|---|
+| ![Full Hybrid](docs/01-full-hybrid.png) | ![Full Cloud](docs/02-full-cloud.png) |
+| **Hybrid** | **On-Prem** |
+| ![Hybrid](docs/03-hybrid.png) | ![On-Prem](docs/04-on-prem.png) |
+| **AD** | **Connesso, caricamento in corso** |
+| ![AD](docs/05-ad.png) | ![Caricamento](docs/06-connected-loading.png) |
+
+<sub>I dati sensibili (utenti, domini, server, nomi delle OU) sono sfocati.</sub>
 
 ## Requisiti
 

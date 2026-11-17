@@ -17,6 +17,8 @@ Who is on-prem and who is already in the cloud, how much space every mailbox use
 
 **English** · [Italiano](README.it.md)
 
+<img src="docs/07-overview.png" alt="HybridScope overview" width="900">
+
 </div>
 
 ---
@@ -24,6 +26,7 @@ Who is on-prem and who is already in the cloud, how much space every mailbox use
 ## Contents
 
 - [Features](#features)
+- [Screenshots](#screenshots)
 - [Requirements](#requirements)
 - [Quick start](#quick-start)
 - [Using the GUI](#using-the-gui)
@@ -56,12 +59,33 @@ Who is on-prem and who is already in the cloud, how much space every mailbox use
 - **Works from a PC outside the domain**: either Windows credentials or a domain user and password entered manually, with Kerberos.
 - **Infrastructure modes**: *Full Cloud*, *Full Hybrid*, *Hybrid*, *On-Prem* or *AD*, selectable with one click. The app shows and merges only the sources you have.
 - **Grouping in tabs** chosen from the window: top-level OU, the OU that contains the user, a single list, or custom rules.
+- **Step indicators**: Connect 365 › Connect Exchange › Verify AD › Load data turn green with a ✓ when done, amber while running and red on error.
 - **Change account** button to sign out of Microsoft 365 and clear the saved sign-in, and a **Stop** button to cancel a running load.
 - **Headless mode `-Auto`**: certificate-based sign-in for scheduled reports. Keeps a `HybridScope_LATEST.xlsx` copy and a history of trends (on-prem users, space, % MFA).
 - **English / Italian** interface.
 - **Read-only**: HybridScope never changes anything in AD, Exchange or Microsoft 365.
 
-> 📸 *Add your screenshots to `docs/` and link them here, e.g. `![Overview](docs/overview.png)`.*
+## Screenshots
+
+**Overview**: counts per OU / group, mailbox location, space, licenses, MFA and inactivity at a glance.
+
+![Overview](docs/07-overview.png)
+
+**Users**: one row per user, merging AD, Exchange and Microsoft 365. Search, sort, export.
+
+![Users](docs/08-users.png)
+
+**Infrastructure modes**: one click and the window shows only the connections you need.
+
+| Full Hybrid | Full Cloud |
+|---|---|
+| ![Full Hybrid](docs/01-full-hybrid.png) | ![Full Cloud](docs/02-full-cloud.png) |
+| **Hybrid** | **On-Prem** |
+| ![Hybrid](docs/03-hybrid.png) | ![On-Prem](docs/04-on-prem.png) |
+| **AD** | **Connected, loading** |
+| ![AD](docs/05-ad.png) | ![Loading](docs/06-connected-loading.png) |
+
+<sub>Sensitive data (users, domains, servers, OU names) is blurred.</sub>
 
 ## Requirements
 

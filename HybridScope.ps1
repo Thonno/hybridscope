@@ -29,7 +29,7 @@ param(
     [string]$ConfigPath
 )
 
-$HS_Version = '1.2.0'
+$HS_Version = '1.3.0'
 
 # Folder of the script / exe (PS2EXE does not set $PSScriptRoot)
 $AppDir = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent ([Environment]::GetCommandLineArgs()[0]) }
@@ -91,6 +91,7 @@ $Core = {
             'job.xlsx'          = 'Exporting Excel...'
             'job.csv'           = 'Exporting CSV...'
             'job.modules'       = 'Installing modules...'
+            'empty.ready'       = 'Complete the steps above, then click Load data'
             'mode.cloud'        = 'Microsoft 365 only'
             'mode.fullhybrid'   = 'Microsoft 365 + Exchange on-premises + Active Directory'
             'mode.hybrid'       = 'Microsoft 365 + Active Directory (no Exchange on-premises)'
@@ -309,6 +310,7 @@ $Core = {
             'job.xlsx'          = 'Esportazione Excel...'
             'job.csv'           = 'Esportazione CSV...'
             'job.modules'       = 'Installazione moduli...'
+            'empty.ready'       = 'Completa i passaggi qui sopra, poi premi Carica dati'
             'mode.cloud'        = 'Solo Microsoft 365'
             'mode.fullhybrid'   = 'Microsoft 365 + Exchange on-premises + Active Directory'
             'mode.hybrid'       = 'Microsoft 365 + Active Directory (senza Exchange on-premises)'
@@ -1505,6 +1507,24 @@ $xamlText = @'
         Title="HybridScope" Height="860" Width="1500"
         WindowStartupLocation="CenterScreen" Background="#F3F4F6" FontFamily="Segoe UI" FontSize="12">
   <Window.Resources>
+    <Style x:Key="PrimaryButton" TargetType="Button">
+      <Setter Property="Foreground" Value="White"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="bd" Background="#1565C0" CornerRadius="3" Padding="18,5">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="bd" Property="Background" Value="#0D47A1"/></Trigger>
+              <Trigger Property="IsEnabled" Value="False"><Setter TargetName="bd" Property="Opacity" Value="0.5"/></Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
     <Style x:Key="ModeButton" TargetType="RadioButton">
       <Setter Property="Foreground" Value="#CFE0F5"/>
       <Setter Property="FontWeight" Value="Normal"/>
@@ -1622,10 +1642,14 @@ $xamlText = @'
       </WrapPanel>
     </Border>
 
+    <Border DockPanel.Dock="Top" Padding="12,10,12,0">
+      <StackPanel x:Name="stepPanel" Orientation="Horizontal" HorizontalAlignment="Center"/>
+    </Border>
+
     <Border DockPanel.Dock="Top" Padding="12,8">
       <DockPanel>
         <StackPanel Orientation="Horizontal">
-          <Button x:Name="btnLoad" Content="{{btn.load}}" Margin="0" Background="#1565C0" Foreground="White" FontWeight="SemiBold" BorderBrush="#1565C0" Padding="18,5"/>
+          <Button x:Name="btnLoad" Content="{{btn.load}}" Margin="0" Style="{StaticResource PrimaryButton}"/>
           <Button x:Name="btnStop" Content="{{btn.stop}}" ToolTip="{{tip.stop}}" IsEnabled="False" Foreground="#B42318" BorderBrush="#E5A3A3"/>
           <TextBlock Text="{{lbl.groupBy}}" Margin="16,0,6,0"/>
           <ComboBox x:Name="cmbGroupBy" Width="215" ToolTip="{{tip.groupBy}}">
@@ -1661,7 +1685,7 @@ $xamlText = @'
     <Grid Margin="8,0,8,6">
       <TabControl x:Name="tabs"/>
       <TextBlock x:Name="lblEmpty" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="#8A94A6" FontSize="14" TextAlignment="Center"
-                 Text="{{empty.hint}}"/>
+                 Text="{{empty.ready}}"/>
     </Grid>
   </DockPanel>
 </Window>
@@ -1683,6 +1707,72 @@ $Brush = New-Object System.Windows.Media.BrushConverter
 function Set-Led($led, [string]$state) {
     $color = switch ($state) { 'ok' { '#2EA043' } 'err' { '#D1242F' } 'busy' { '#E3A008' } default { '#B0B0B0' } }
     $ui[$led].Fill = $Brush.ConvertFromString($color)
+    $step = @{ led365 = 'm365'; ledExch = 'exch'; ledAD = 'ad' }[$led]
+    if ($step) { Set-Step $step $(switch ($state) { 'ok' { 'done' } 'err' { 'error' } 'busy' { 'busy' } default { 'todo' } }) }
+}
+
+# ---------------------------------------------------------------- step chips (1 Connect 365 > 2 Connect Exchange > ...)
+$script:StepState = @{ m365 = 'todo'; exch = 'todo'; ad = 'todo'; load = 'todo' }
+$script:StepUi = @{}
+function New-StepChip([string]$Key, [int]$Num, [string]$Label) {
+    $b = New-Object System.Windows.Controls.Border
+    $b.CornerRadius = New-Object System.Windows.CornerRadius 15
+    $b.Padding = New-Object System.Windows.Thickness 6, 4, 14, 4
+    $b.BorderThickness = New-Object System.Windows.Thickness 1
+    $sp = New-Object System.Windows.Controls.StackPanel
+    $sp.Orientation = 'Horizontal'
+    $circle = New-Object System.Windows.Controls.Border
+    $circle.Width = 22; $circle.Height = 22
+    $circle.CornerRadius = New-Object System.Windows.CornerRadius 11
+    $circle.Margin = New-Object System.Windows.Thickness 0, 0, 8, 0
+    $g = New-Object System.Windows.Controls.TextBlock
+    $g.HorizontalAlignment = 'Center'; $g.VerticalAlignment = 'Center'; $g.FontWeight = 'Bold'; $g.FontSize = 12
+    $g.Foreground = $Brush.ConvertFromString('#FFFFFF')
+    $circle.Child = $g
+    $t = New-Object System.Windows.Controls.TextBlock
+    $t.Text = $Label; $t.VerticalAlignment = 'Center'; $t.FontWeight = 'SemiBold'
+    [void]$sp.Children.Add($circle); [void]$sp.Children.Add($t)
+    $b.Child = $sp
+    $script:StepUi[$Key] = @{ Border = $b; Circle = $circle; Glyph = $g; Text = $t; Num = $Num }
+    $b
+}
+function Set-Step([string]$Key, [string]$State) {
+    $script:StepState[$Key] = $State
+    $u = $script:StepUi[$Key]; if (-not $u) { return }
+    # background, border, circle, glyph, text colour
+    $c = switch ($State) {
+        'done' { @('#E6F6EA', '#9AD9AE', '#2EA043', [string][char]0x2713, '#1E6B34') }
+        'busy' { @('#FFF6DD', '#F0CF7A', '#E3A008', [string][char]0x2026, '#7A5200') }
+        'error' { @('#FDECEC', '#F2A9A5', '#D1242F', [string][char]0x2715, '#9F1D1D') }
+        default { @('#FFFFFF', '#D3DAE3', '#9AA6B6', "$($u.Num)", '#5B6B80') }
+    }
+    $u.Border.Background = $Brush.ConvertFromString($c[0])
+    $u.Border.BorderBrush = $Brush.ConvertFromString($c[1])
+    $u.Circle.Background = $Brush.ConvertFromString($c[2])
+    $u.Glyph.Text = $c[3]
+    $u.Text.Foreground = $Brush.ConvertFromString($c[4])
+}
+function Update-Steps($src) {
+    $ui.stepPanel.Children.Clear()
+    $script:StepUi = @{}
+    $steps = @()
+    if ($src.M365) { $steps += , @('m365', (T 'btn.connect365')) }
+    if ($src.Exch) { $steps += , @('exch', (T 'btn.connectExch')) }
+    if ($src.AD) { $steps += , @('ad', (T 'btn.verifyAD')) }
+    $steps += , @('load', (T 'btn.load'))
+    $i = 0
+    foreach ($s in $steps) {
+        $i++
+        if ($i -gt 1) {
+            $sep = New-Object System.Windows.Controls.TextBlock
+            $sep.Text = [string][char]0x203A; $sep.FontSize = 20; $sep.VerticalAlignment = 'Center'
+            $sep.Margin = New-Object System.Windows.Thickness 10, -3, 10, 0
+            $sep.Foreground = $Brush.ConvertFromString('#9AA6B6')
+            [void]$ui.stepPanel.Children.Add($sep)
+        }
+        [void]$ui.stepPanel.Children.Add((New-StepChip $s[0] $i $s[1]))
+        Set-Step $s[0] $script:StepState[$s[0]]
+    }
 }
 function Show-Msg([string]$text, [string]$title, [string]$buttons = 'OK', [string]$icon = 'Information') {
     [System.Windows.MessageBox]::Show($text, $title, $buttons, $icon)
@@ -1770,14 +1860,15 @@ function Set-Busy([bool]$busy, [string]$text) {
 }
 
 function Start-HSJob {
-    param([string]$Title, [string]$Script, [hashtable]$Vars = @{}, [scriptblock]$OnDone, [string]$Led, [string]$Label)
+    param([string]$Title, [string]$Script, [hashtable]$Vars = @{}, [scriptblock]$OnDone, [string]$Led, [string]$Label, [string]$Step)
     if ($script:Job) { return }
     $script:RS.SessionStateProxy.SetVariable('Cfg', $cfg)
     foreach ($k in $Vars.Keys) { $script:RS.SessionStateProxy.SetVariable($k, $Vars[$k]) }
     $ps = [powershell]::Create()
     $ps.Runspace = $script:RS
     [void]$ps.AddScript("`$ErrorActionPreference = 'Stop'`n`$global:HS_Sync = `$HS_Sync`n`$global:HS_AppDir = `$HS_AppDir`n`$global:HS_Lang = `$HS_Lang`n" + $Script)
-    $script:Job = @{ PS = $ps; Handle = $ps.BeginInvoke(); OnDone = $OnDone; Led = $Led; Label = $Label; Cancelled = $false }
+    $script:Job = @{ PS = $ps; Handle = $ps.BeginInvoke(); OnDone = $OnDone; Led = $Led; Label = $Label; Step = $Step; Cancelled = $false }
+    if ($Step) { Set-Step $Step 'busy' }
     Set-Busy $true $Title
 }
 
@@ -1832,6 +1923,7 @@ $timer.Add_Tick({
             if ($j.Cancelled) {
                 $ui.txtLog.AppendText((T 'st.cancelled') + "`r`n"); $ui.lblStatus.Text = T 'st.cancelled'
                 if ($j.Led) { Set-Led $j.Led 'off'; $ui[$j.Label].Text = T 'st.cancelled' }
+                if ($j.Step) { Set-Step $j.Step 'todo' }
                 return
             }
             if ($err) { $ui.txtLog.AppendText((T 'err.generic' $err.Message) + "`r`n"); $ui.lblStatus.Text = (T 'err.generic' $err.Message) }
@@ -1898,7 +1990,10 @@ function Show-HSTables {
         }
         $grid.ItemsSource = $dt.DefaultView
         $tab = New-Object System.Windows.Controls.TabItem
-        $tab.Header = if ($name -eq $OverviewName) { $name } else { "$name ($($dt.Rows.Count))" }
+        $hdr = New-Object System.Windows.Controls.TextBlock   # TextBlock: underscores are not eaten as access keys
+        $hdr.Text = if ($name -eq $OverviewName) { $name } else { "$name ($($dt.Rows.Count))" }
+        $tab.Header = $hdr
+        $tab.Uid = $name
         $tab.Content = $grid
         $tab.Tag = $dt
         [void]$ui.tabs.Items.Add($tab)
@@ -1984,12 +2079,7 @@ function Set-HSMode([string]$Mode) {
     $ui.gbExch.Visibility = if ($src.Exch) { 'Visible' } else { 'Collapsed' }
     $ui.gbAD.Visibility = if ($src.AD) { 'Visible' } else { 'Collapsed' }
     $ui.gbCred.Visibility = if ($src.Exch -or $src.AD) { 'Visible' } else { 'Collapsed' }
-    $steps = @()
-    if ($src.M365) { $steps += T 'btn.connect365' }
-    if ($src.Exch) { $steps += T 'btn.connectExch' }
-    if ($src.AD) { $steps += T 'btn.verifyAD' }
-    $steps += T 'btn.load'
-    $i = 0; $ui.lblEmpty.Text = ($steps | ForEach-Object { $i++; "$i. $_" }) -join '      '
+    Update-Steps $src
 }
 $modeButtons = @{ Cloud = 'rbCloud'; FullHybrid = 'rbFullHybrid'; Hybrid = 'rbHybrid'; OnPrem = 'rbOnPrem'; AD = 'rbAD' }
 if (-not $modeButtons.ContainsKey($script:Mode)) { $script:Mode = 'FullHybrid' }
@@ -2036,7 +2126,7 @@ $ui.btnLoad.Add_Click({
             if ($cfg.ExchangeProtocol -ne 'local') { $script:ExCred = $c }
         }
         $ui.expLog.IsExpanded = $true
-        Start-HSJob -Title (T 'job.load') -Vars @{ ADCred = $script:ADCred; ExCred = $script:ExCred; Sources = $src } -Script @'
+        Start-HSJob -Title (T 'job.load') -Step 'load' -Vars @{ ADCred = $script:ADCred; ExCred = $script:ExCred; Sources = $src } -Script @'
 $d = Get-HSData -Cfg $Cfg -ADCredential $ADCred -ExchangeCredential $ExCred -Sources $Sources
 $tables = [ordered]@{}
 foreach ($k in $d.Tables.Keys) { $tables[$k] = ConvertTo-HSDataTable -Rows @($d.Tables[$k]) -NoLocalize:($k -eq $d.OverviewName) }
@@ -2044,7 +2134,8 @@ $HS_Sync.Data = $d
 $HS_Sync.DataTables = $tables
 '@ -OnDone {
             param($out, $err)
-            if ($err) { Show-Msg $err.Message (T 'title.loadError') 'OK' 'Error' | Out-Null; return }
+            if ($err) { Set-Step 'load' 'error'; Show-Msg $err.Message (T 'title.loadError') 'OK' 'Error' | Out-Null; return }
+            Set-Step 'load' 'done'
             $script:Data = $HS_Sync.Data
             Show-HSTables $HS_Sync.DataTables $script:Data.OverviewName
             $ui.lblGenerated.Text = T 'lbl.generated' $script:Data.Generated.ToString('yyyy-MM-dd HH:mm')
@@ -2083,7 +2174,7 @@ $ui.btnCsvAll.Add_Click({
 
 $ui.btnTab.Add_Click({
         $tab = $ui.tabs.SelectedItem; if (-not $tab) { return }
-        $name = ($tab.Header -replace '\s*\(\d+\)$', '')
+        $name = $tab.Uid
         $dlg = New-Object Microsoft.Win32.SaveFileDialog
         $dlg.Filter = T 'dlg.filterCsv'
         $dlg.InitialDirectory = Get-HSOutputFolder $cfg

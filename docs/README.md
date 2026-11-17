@@ -1,3 +1,3 @@
 # Screenshots
 
-Put the screenshots used by the README here (e.g. `overview.png`, `users.png`, `mfa.png`).
+Images used by the README. Sensitive data (users, domains, servers, OU names) is blurred.
