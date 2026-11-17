@@ -87,6 +87,15 @@ Chi è on-prem e chi è già nel cloud, quanto spazio occupa ogni mailbox, chi h
    ```
 4. Se te lo propone, lascia che installi i moduli mancanti. Per `ActiveDirectory` si apre una finestra PowerShell visibile che chiede la conferma di amministratore.
 
+### Facoltativo: creare un .exe
+
+```powershell
+.\tools\Build-Exe.ps1
+```
+Crea `HybridScope.exe` nella cartella principale con [PS2EXE](https://github.com/MScholtes/PS2EXE) e installa PS2EXE se manca. L'exe deve restare nella stessa cartella di `tools\` e `config.json`.
+
+> ⚠️ Gli antivirus e le sandbox (Defender, Bitdefender...) segnalano spesso gli exe creati con PS2EXE come falsi positivi. Firma l'exe con un certificato di code signing (il comando viene mostrato alla fine della build), oppure usa semplicemente `Start-HybridScope.cmd`.
+
 Al primo avvio viene creato `config.json` accanto allo script. `config.sample.json` mostra tutte le opzioni.
 
 ## Uso dell'interfaccia
