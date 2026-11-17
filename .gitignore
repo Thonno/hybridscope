@@ -1,0 +1,11 @@
+# local configuration (may contain tenant / server names and certificate thumbprints)
+config.json
+
+# outputs
+*.xlsx
+*.csv
+logs/
+Reports/
+
+# build artifacts
+*.exe
