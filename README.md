@@ -7,6 +7,7 @@
 Who is on-prem and who is already in the cloud, how much space every mailbox uses, who has a license, who has MFA, who hasn't signed in for months: in one window, exportable to Excel.
 
 [![Sponsor on GitHub](https://img.shields.io/badge/Sponsor-GitHub-ea4aaa?style=for-the-badge&logo=githubsponsors&logoColor=white)](https://github.com/sponsors/Thonno)
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20me%20a%20coffee-FFDD00?style=for-the-badge&logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/aascione956)
 [![Star on GitHub](https://img.shields.io/github/stars/Thonno/hybridscope?style=for-the-badge&logo=github&label=Star)](https://github.com/Thonno/hybridscope/stargazers)
 
 ![PowerShell 5.1](https://img.shields.io/badge/PowerShell-5.1-5391FE?logo=powershell&logoColor=white)
@@ -336,6 +337,7 @@ Get-ChildItem C:\HybridScope -Recurse | Unblock-File
 If HybridScope saves you time, you can support its development:
 
 [![Sponsor on GitHub](https://img.shields.io/badge/Sponsor-GitHub-ea4aaa?style=for-the-badge&logo=githubsponsors&logoColor=white)](https://github.com/sponsors/Thonno)
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20me%20a%20coffee-FFDD00?style=for-the-badge&logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/aascione956)
 [![Star on GitHub](https://img.shields.io/github/stars/Thonno/hybridscope?style=for-the-badge&logo=github&label=Star)](https://github.com/Thonno/hybridscope/stargazers)
 
 Issues and pull requests are welcome. Please open an issue before large changes.
