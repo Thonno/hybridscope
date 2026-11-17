@@ -33,6 +33,7 @@ Who is on-prem and who is already in the cloud, how much space every mailbox use
 - [Tabs and columns](#tabs-and-columns)
 - [Configuration (config.json)](#configuration-configjson)
 - [Permissions](#permissions)
+- [Command line (no GUI)](#command-line-no-gui)
 - [Scheduled reports (-Auto)](#scheduled-reports--auto)
 - [Troubleshooting](#troubleshooting)
 - [FAQ](#faq)
@@ -61,7 +62,7 @@ Who is on-prem and who is already in the cloud, how much space every mailbox use
 - **Grouping in tabs** chosen from the window: top-level OU, the OU that contains the user, a single list, or custom rules.
 - **Step indicators**: Connect 365 › Connect Exchange › Verify AD › Load data turn green with a ✓ when done, amber while running and red on error.
 - **Change account** button to sign out of Microsoft 365 and clear the saved sign-in, and a **Stop** button to cancel a running load.
-- **Headless mode `-Auto`**: certificate-based sign-in for scheduled reports. Keeps a `HybridScope_LATEST.xlsx` copy and a history of trends (on-prem users, space, % MFA).
+- **Command line**: `-Auto` for the full report, `-Only MFA` (or `Licenses`, `Mailbox365`, `OneDrive`, `MailboxOnPrem`) for a single dataset, `-PassThru` to get objects in the pipeline. Certificate-based sign-in for scheduled reports. Keeps a `HybridScope_LATEST.xlsx` copy and a history of trends (on-prem users, space, % MFA).
 - **English / Italian** interface.
 - **Read-only**: HybridScope never changes anything in AD, Exchange or Microsoft 365.
 
@@ -277,6 +278,36 @@ HybridScope only **reads**. Least privilege is enough; you do not need Domain Ad
 Microsoft Graph permissions (delegated in the GUI, application for `-Auto`):
 `User.Read.All`, `AuditLog.Read.All`, `Reports.Read.All`, `UserAuthenticationMethod.Read.All`, `Organization.Read.All`, `Policy.Read.All`.
 
+## Command line (no GUI)
+
+Every run without the window uses `config.json`; full help with examples: `Get-Help .\HybridScope.ps1 -Full`.
+
+| Parameter | What it does |
+|---|---|
+| `-Auto` | Full report for the configured `Mode`, written to `OutputFolder` (plus `history.csv` and `HybridScope_LATEST.xlsx`) |
+| `-Only <dataset>` | Just one dataset: `MFA`, `Licenses`, `Mailbox365`, `OneDrive` or `MailboxOnPrem`. Only the source it needs is contacted |
+| `-PassThru` | Returns objects instead of writing files: the `-Only` rows, or one merged row per user. Values are always in English |
+| `-Mode <mode>` | Overrides `Mode` for this run (`Cloud`, `FullHybrid`, `Hybrid`, `OnPrem`, `AD`) |
+| `-ConfigPath <file>` | Uses another configuration file, e.g. one per tenant |
+
+Microsoft 365 sign-in: with `AuthMode = Interactive` (default) a browser prompt opens once; with `Certificate` there is no prompt. If you already ran `Connect-MgGraph` in the same session, that connection is reused and left open.
+
+```powershell
+# MFA status only, to Excel in OutputFolder (AD and Exchange are not touched)
+.\HybridScope.ps1 -Only MFA
+
+# users without MFA, straight to CSV
+.\HybridScope.ps1 -Only MFA -PassThru | Where-Object MFA_Registered -eq 'No' | Export-Csv .\no-mfa.csv -NoTypeInformation
+
+# full report, Microsoft 365 only, without editing config.json
+.\HybridScope.ps1 -Auto -Mode Cloud
+
+# merged per-user data as objects: on-prem mailboxes still to migrate, largest first
+.\HybridScope.ps1 -PassThru | Where-Object Location -eq 'ON-PREM' | Sort-Object MailboxOnPrem_MB -Descending
+```
+
+Exit code: `0` = success, `1` = error (details in `OutputFolder\logs`).
+
 ## Scheduled reports (-Auto)
 
 1. **Create the app registration** with a certificate. Run it once, as Global Admin, **with the account that will run the task**:
@@ -367,13 +398,15 @@ Get-ChildItem C:\HybridScope -Recurse | Unblock-File
 
 **Only Active Directory?** Yes: use **AD** mode.
 
+**Can I get just the MFA status, without the GUI?** Yes: `.\HybridScope.ps1 -Only MFA` (Excel) or `-Only MFA -PassThru` (objects). See [Command line](#command-line-no-gui).
+
 ## Roadmap
 
 - [ ] Clickable overview: double-click a number to open a tab with exactly those users
 - [ ] User card: double-click a user to see AD, mailbox, OneDrive, MFA and licenses together
 - [ ] Shared / room mailboxes and distribution groups
 - [ ] HTML report
-- [ ] More languages (PRs welcome: the strings live in `$global:HS_Str` at the top of `HybridScope.ps1`)
+- [ ] More languages (PRs welcome: the strings live in `$script:HS_Str` at the top of `HybridScope.ps1`)
 
 ## Support the project
 

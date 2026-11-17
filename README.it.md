@@ -33,6 +33,7 @@ Chi è on-prem e chi è già nel cloud, quanto spazio occupa ogni mailbox, chi h
 - [Tab e colonne](#tab-e-colonne)
 - [Configurazione (config.json)](#configurazione-configjson)
 - [Permessi](#permessi)
+- [Riga di comando (senza interfaccia)](#riga-di-comando-senza-interfaccia)
 - [Report pianificati (-Auto)](#report-pianificati--auto)
 - [Risoluzione problemi](#risoluzione-problemi)
 - [FAQ](#faq)
@@ -61,7 +62,7 @@ Chi è on-prem e chi è già nel cloud, quanto spazio occupa ogni mailbox, chi h
 - **Raggruppamento in tab** scelto dalla finestra: OU di primo livello, OU che contiene l'utente, lista unica oppure regole personalizzate.
 - **Indicatori di avanzamento**: Connetti 365 › Connetti Exchange › Verifica AD › Carica dati diventano verdi con una ✓ quando sono completati, gialli durante l'esecuzione e rossi in caso di errore.
 - Pulsante **Cambia account** per disconnettersi da Microsoft 365 e cancellare l'accesso salvato, e pulsante **Interrompi** per fermare un caricamento in corso.
-- **Modalità `-Auto`**: accesso con certificato per report pianificati. Mantiene una copia `HybridScope_LATEST.xlsx` e uno storico dell'andamento (utenti on-prem, spazio, % MFA).
+- **Riga di comando**: `-Auto` per il report completo, `-Only MFA` (oppure `Licenses`, `Mailbox365`, `OneDrive`, `MailboxOnPrem`) per un solo insieme di dati, `-PassThru` per avere oggetti nella pipeline. Accesso con certificato per i report pianificati. Mantiene una copia `HybridScope_LATEST.xlsx` e uno storico dell'andamento (utenti on-prem, spazio, % MFA).
 - Interfaccia in **italiano / inglese**.
 - **Sola lettura**: HybridScope non modifica nulla in AD, Exchange o Microsoft 365.
 
@@ -278,6 +279,36 @@ HybridScope **legge e basta**. Bastano i privilegi minimi; per l'uso quotidiano 
 Permessi Microsoft Graph (delegati nell'interfaccia, applicativi per `-Auto`):
 `User.Read.All`, `AuditLog.Read.All`, `Reports.Read.All`, `UserAuthenticationMethod.Read.All`, `Organization.Read.All`, `Policy.Read.All`.
 
+## Riga di comando (senza interfaccia)
+
+Ogni esecuzione senza finestra usa `config.json`; help completo con esempi: `Get-Help .\HybridScope.ps1 -Full`.
+
+| Parametro | Cosa fa |
+|---|---|
+| `-Auto` | Report completo per la `Mode` configurata, scritto in `OutputFolder` (più `history.csv` e `HybridScope_LATEST.xlsx`) |
+| `-Only <dataset>` | Un solo insieme di dati: `MFA`, `Licenses`, `Mailbox365`, `OneDrive` o `MailboxOnPrem`. Viene contattata solo la fonte che serve |
+| `-PassThru` | Restituisce oggetti invece di scrivere file: le righe di `-Only`, oppure una riga unita per utente. I valori sono sempre in inglese |
+| `-Mode <modalità>` | Sostituisce `Mode` solo per questa esecuzione (`Cloud`, `FullHybrid`, `Hybrid`, `OnPrem`, `AD`) |
+| `-ConfigPath <file>` | Usa un altro file di configurazione, per esempio uno per tenant |
+
+Accesso a Microsoft 365: con `AuthMode = Interactive` (il default) si apre una volta l'accesso nel browser; con `Certificate` nessuna richiesta. Se nella stessa sessione hai già eseguito `Connect-MgGraph`, quella connessione viene riusata e lasciata aperta.
+
+```powershell
+# solo lo stato MFA, in Excel nella OutputFolder (AD ed Exchange non vengono toccati)
+.\HybridScope.ps1 -Only MFA
+
+# utenti senza MFA, direttamente in CSV
+.\HybridScope.ps1 -Only MFA -PassThru | Where-Object MFA_Registered -eq 'No' | Export-Csv .\no-mfa.csv -NoTypeInformation
+
+# report completo, solo Microsoft 365, senza modificare config.json
+.\HybridScope.ps1 -Auto -Mode Cloud
+
+# dati uniti per utente come oggetti: mailbox on-prem da migrare, dalla più grande
+.\HybridScope.ps1 -PassThru | Where-Object Location -eq 'ON-PREM' | Sort-Object MailboxOnPrem_MB -Descending
+```
+
+Exit code: `0` = riuscito, `1` = errore (dettagli in `OutputFolder\logs`).
+
 ## Report pianificati (-Auto)
 
 1. **Crea l'app registration** con certificato. Va fatto una volta, da Global Admin, **con l'account che eseguirà il task**:
@@ -368,13 +399,15 @@ Get-ChildItem C:\HybridScope -Recurse | Unblock-File
 
 **Solo Active Directory?** Sì: usa la modalità **AD**.
 
+**Posso estrarre solo lo stato MFA, senza interfaccia?** Sì: `.\HybridScope.ps1 -Only MFA` (Excel) oppure `-Only MFA -PassThru` (oggetti). Vedi [Riga di comando](#riga-di-comando-senza-interfaccia).
+
 ## Roadmap
 
 - [ ] Panoramica cliccabile: doppio clic su un numero per aprire un tab con esattamente quegli utenti
 - [ ] Scheda utente: doppio clic su un utente per vedere insieme AD, mailbox, OneDrive, MFA e licenze
 - [ ] Mailbox condivise / sale e liste di distribuzione
 - [ ] Report HTML
-- [ ] Altre lingue (le PR sono benvenute: i testi sono in `$global:HS_Str` all'inizio di `HybridScope.ps1`)
+- [ ] Altre lingue (le PR sono benvenute: i testi sono in `$script:HS_Str` all'inizio di `HybridScope.ps1`)
 
 ## Sostieni il progetto
 

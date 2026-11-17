@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.4.0 - 2026-11-17
+- **Command line without the GUI**: `-Only MFA | Licenses | Mailbox365 | OneDrive | MailboxOnPrem` collects a single dataset and contacts only the source it needs; `-PassThru` returns objects instead of writing files (English values, pipeline-friendly); `-Mode` overrides the infrastructure mode for one run
+- `-Auto` / `-Only` reuse an existing `Connect-MgGraph` session and leave it open
+- Data collection split into one function per source (`Get-HSEntraUser`, `Get-HSMfaRegistration`, `Get-HSMailbox365Usage`, `Get-HSOneDriveUsage`, `Get-HSExchangeMailbox`, ...); `Get-HSData` now only merges
+- Fix: the Excel OVERVIEW sheet lost its formatting (section rows, GB number format, bold TOTAL) and the "Generated on" / legend / warning lines overwrote metric names from row 4 down. Cause: `$M` (metric list) and `$m` (loop variable) are the same variable in PowerShell
+- Shared state moved from `$global:HS_*` to `$script:HS_*`: nothing is left in the caller's session
+- Single-letter variables renamed to descriptive names
+- Full comment-based help (`Get-Help .\HybridScope.ps1 -Full`) with examples
+
 ## 1.3.0 - 2026-11-17
 - **Step indicators** under the connection panels: each step (Connect 365, Connect Exchange, Verify AD, Load data) shows its number, then turns amber while running, green with a check mark when done, red on error
 - "Load data" button restyled: stays readable while disabled

@@ -1,35 +1,151 @@
 ﻿<#
 .SYNOPSIS
-    HybridScope - inventory of hybrid identities and mailboxes:
+    HybridScope - read-only inventory of hybrid identities and mailboxes:
     Active Directory + Exchange on-premises + Microsoft 365 (Microsoft Graph).
 
 .DESCRIPTION
-    Without parameters opens the GUI: sign in to Microsoft 365, Exchange on-prem and AD,
-    load everything into RVTools-style tabs, filter, export to XLSX / CSV.
+    HybridScope reads users from Active Directory, mailboxes from Exchange Server (2013-SE) and
+    licenses, sign-ins, Exchange Online / OneDrive usage and MFA registration from Microsoft Graph,
+    merges them into one row per user and exports the result to Excel or CSV.
+    It never changes anything in AD, Exchange or Microsoft 365.
 
-    With -Auto runs headless (scheduled task): certificate-based sign-in to Microsoft 365,
-    current user for AD / Exchange, writes the Excel report to OutputFolder and updates the history.
+    Ways to run it:
+
+      GUI (default)      No parameters. A window to connect to the sources, load the data into
+                         RVTools-style tabs, search, sort and export.
+
+      Full report        -Auto. No window: reads config.json, collects everything for the configured
+                         Mode, writes the Excel report to OutputFolder and appends to history.csv.
+
+      One dataset        -Only <name>. No window: collects just that dataset (e.g. MFA) and writes
+                         HybridScope_<name>_<timestamp>.xlsx, or returns it with -PassThru.
+
+      Pipeline           -PassThru. Returns objects instead of writing files: the rows of the -Only
+                         dataset, or one merged row per user without -Only.
+
+    Microsoft 365 sign-in without the GUI depends on AuthMode in config.json:
+      Interactive  -> a browser sign-in opens once (one-off runs from a console)
+      Certificate  -> app + certificate, no prompt (scheduled tasks, see tools\New-HybridScopeApp.ps1)
+    If you are already connected with Connect-MgGraph in the same session, that connection is reused
+    and left open. AD and Exchange use the Windows account running the script.
+
+    Files written in OutputFolder (default: Documents\HybridScope):
+      HybridScope_<yyyy-MM-dd_HHmm>.xlsx         full report (-Auto)
+      HybridScope_LATEST.xlsx                    copy of the latest full report
+      HybridScope_<dataset>_<timestamp>.xlsx     single dataset (-Only)
+      history.csv                                one row per full report (users, on-prem/365, space, % MFA)
+      logs\HybridScope_<timestamp>.log           run log
+    Reports and logs older than RetentionDays are deleted (0 = keep everything).
 
 .PARAMETER Auto
-    Headless mode for scheduled tasks.
+    Run without the GUI and write the full report to OutputFolder.
+    Exit code 0 = success, 1 = error (details in the log file).
+
+.PARAMETER Only
+    Collect a single dataset instead of the full report. Implies -Auto.
+      MFA            MFA registration per Entra user: registered, capable, default method, methods,
+                     per-user state, SSPR, admin
+      Licenses       tenant licenses: purchased / assigned / available per SKU
+      Mailbox365     Exchange Online mailbox sizes (Microsoft usage report)
+      OneDrive       OneDrive usage per account
+      MailboxOnPrem  Exchange on-premises mailboxes and sizes (needs ExchangeServer in config.json)
+    Only the source that dataset needs is contacted: -Only MFA does not touch AD or Exchange.
+
+.PARAMETER PassThru
+    Return the data as objects instead of writing files. Implies -Auto.
+    With -Only: the rows of that dataset. Without -Only: one merged row per user (the USERS tab).
+    Property names and values are always in English (Yes/No, Enabled/Disabled...), whatever the
+    Language setting, so filters like Where-Object MFA_Registered -eq 'No' work everywhere.
+
+.PARAMETER Mode
+    Which sources to use for this run, overriding Mode in config.json (not saved):
+    Cloud, FullHybrid, Hybrid, OnPrem, AD. In the GUI it only sets the starting mode.
 
 .PARAMETER ConfigPath
-    Path of the JSON configuration file (default: config.json next to the script / exe).
+    Path of the JSON configuration file. Default: config.json next to the script (or the .exe).
+    Created with default values if it does not exist. See config.sample.json for every option.
 
 .EXAMPLE
     .\HybridScope.ps1
+
+    Opens the GUI.
+
+.EXAMPLE
+    .\HybridScope.ps1 -Only MFA
+
+    MFA status only, no GUI: signs in to Microsoft 365 (browser prompt with AuthMode = Interactive)
+    and writes HybridScope_MFA_<timestamp>.xlsx to OutputFolder. AD and Exchange are not contacted.
+
+.EXAMPLE
+    .\HybridScope.ps1 -Only MFA -PassThru | Where-Object MFA_Registered -eq 'No' | Export-Csv .\no-mfa.csv -NoTypeInformation
+
+    Users without MFA, straight to a CSV.
+
+.EXAMPLE
+    Connect-MgGraph -Scopes UserAuthenticationMethod.Read.All, Reports.Read.All, User.Read.All, AuditLog.Read.All
+    $mfa = .\HybridScope.ps1 -Only MFA -PassThru
+    $mfa | Format-Table UPN, MFA_Registered, DefaultMethod
+
+    Reuses your own Graph connection (it stays open afterwards) and keeps the result in a variable.
+
+.EXAMPLE
     .\HybridScope.ps1 -Auto
-    .\HybridScope.ps1 -Auto -ConfigPath D:\HybridScope\config.json
+
+    Full report without the GUI, using Mode and the other settings in config.json.
+
+.EXAMPLE
+    .\HybridScope.ps1 -Auto -Mode Cloud -ConfigPath D:\HybridScope\contoso.json
+
+    Full report for Microsoft 365 only, with a different configuration file (e.g. one per tenant).
+
+.EXAMPLE
+    .\HybridScope.ps1 -PassThru | Where-Object Location -eq 'ON-PREM' | Sort-Object MailboxOnPrem_MB -Descending
+
+    Merged per-user data as objects: on-premises mailboxes still to migrate, largest first.
+
+.EXAMPLE
+    .\tools\New-HybridScopeApp.ps1 -TenantId contoso.onmicrosoft.com
+    .\tools\Register-HybridScopeTask.ps1 -RunAs CONTOSO\svc-hybridscope -At 06:40
+
+    One-time setup for an unattended daily report: app registration with a certificate
+    (sets AuthMode = Certificate), then a scheduled task that runs "HybridScope.ps1 -Auto" every day.
+
+.INPUTS
+    None.
+
+.OUTPUTS
+    None, unless -PassThru is used: then PSCustomObject rows (see -PassThru).
+
+.NOTES
+    Requirements : Windows PowerShell 5.1; modules Microsoft.Graph.Authentication, ImportExcel,
+                   ActiveDirectory (RSAT) - each only when a source that needs it is used.
+                   The GUI offers to install the missing ones.
+    Permissions  : AD - any domain user. Exchange - "View-Only Organization Management" and
+                   RemotePowerShellEnabled. Microsoft 365 - Global Reader + one-time admin consent to
+                   User.Read.All, AuditLog.Read.All, Reports.Read.All, UserAuthenticationMethod.Read.All,
+                   Organization.Read.All, Policy.Read.All (delegated when signing in, application
+                   permissions with a certificate).
+    Last sign-in and the MFA registration report need Entra ID P1; without it MFA methods are read
+    user by user (slower) and a warning is logged.
 
 .LINK
     https://github.com/Thonno/hybridscope
 #>
 param(
     [switch]$Auto,
+
+    [ValidateSet('MFA', 'Licenses', 'Mailbox365', 'OneDrive', 'MailboxOnPrem')]
+    [string]$Only,
+
+    [switch]$PassThru,
+
+    [ValidateSet('Cloud', 'FullHybrid', 'Hybrid', 'OnPrem', 'AD')]
+    [string]$Mode,
+
     [string]$ConfigPath
 )
 
-$HS_Version = '1.3.0'
+$HS_Version = '1.4.0'
 
 # Folder of the script / exe (PS2EXE does not set $PSScriptRoot)
 $AppDir = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent ([Environment]::GetCommandLineArgs()[0]) }
@@ -38,11 +154,16 @@ if (-not $ConfigPath) { $ConfigPath = Join-Path $AppDir 'config.json' }
 # =====================================================================================
 #  CORE: localization, data collection, export.
 #  Used both by the GUI (inside a background runspace) and by -Auto.
+#
+#  Shared state lives in $script:HS_* variables (strings, language, log queue, Exchange
+#  session...). Script scope is enough everywhere: headless and on the GUI thread it is this
+#  file's scope; in the background runspace the engine is loaded at top level, so the state
+#  survives between jobs. Nothing is left behind in the caller's session.
 # =====================================================================================
 $Core = {
 
     # --------------------------------------------------------------------------- strings
-    $global:HS_Str = @{
+    $script:HS_Str = @{
         en = @{
             'app.subtitle'      = 'Active Directory  ·  Exchange on-premises  ·  Microsoft 365'
             'gb.m365'           = 'Microsoft 365'
@@ -179,6 +300,7 @@ $Core = {
             'err.graphConnect'  = 'Connection to Microsoft Graph failed'
             'warn.latestLocked' = 'HybridScope_LATEST.xlsx not updated (is it open in Excel?)'
             'err.generic'       = 'ERROR: {0}'
+            'warn.noRows'       = 'No data returned for {0}: no file written'
 
             'val.enabled'       = 'Enabled'
             'val.disabled'      = 'Disabled'
@@ -398,6 +520,7 @@ $Core = {
             'err.graphConnect'  = 'Connessione a Microsoft Graph non riuscita'
             'warn.latestLocked' = 'HybridScope_LATEST.xlsx non aggiornato (è aperto in Excel?)'
             'err.generic'       = 'ERRORE: {0}'
+            'warn.noRows'       = 'Nessun dato restituito per {0}: nessun file scritto'
 
             'val.enabled'       = 'Abilitato'
             'val.disabled'      = 'Disabilitato'
@@ -483,7 +606,7 @@ $Core = {
     }
 
     # Column headers (internal names are English; Italian translation applied on display/export)
-    $global:HS_Cols = @{
+    $script:HS_Cols = @{
         it = @{
             Group = 'Gruppo'; FirstName = 'Nome'; LastName = 'Cognome'; Username = 'AD_Username'; Status = 'Stato'
             AD_LastLogon = 'AD_UltimoLogon'; M365_LastSignIn = 'M365_UltimoAccesso'; Licenses = 'Licenze'
@@ -502,27 +625,35 @@ $Core = {
     }
 
     function T {
+        <#
+        .SYNOPSIS
+            Returns the localized string for Key (current language, falling back to English), formatted with Args2.
+        #>
         param([string]$Key, [object[]]$Args2)
-        $lang = if ($global:HS_Lang) { $global:HS_Lang } else { 'en' }
-        $s = $global:HS_Str[$lang][$Key]
-        if (-not $s) { $s = $global:HS_Str['en'][$Key] }
-        if (-not $s) { $s = $Key }
-        if ($null -ne $Args2 -and $Args2.Count) { $s -f $Args2 } else { $s }
+        $lang = if ($script:HS_Lang) { $script:HS_Lang } else { 'en' }
+        $text = $script:HS_Str[$lang][$Key]
+        if (-not $text) { $text = $script:HS_Str['en'][$Key] }
+        if (-not $text) { $text = $Key }
+        if ($null -ne $Args2 -and $Args2.Count) { $text -f $Args2 } else { $text }
     }
 
     function Get-HSHeader {
         param([string]$Name)
-        $lang = if ($global:HS_Lang) { $global:HS_Lang } else { 'en' }
-        if ($global:HS_Cols.ContainsKey($lang) -and $global:HS_Cols[$lang].ContainsKey($Name)) { $global:HS_Cols[$lang][$Name] } else { $Name }
+        $lang = if ($script:HS_Lang) { $script:HS_Lang } else { 'en' }
+        if ($script:HS_Cols.ContainsKey($lang) -and $script:HS_Cols[$lang].ContainsKey($Name)) { $script:HS_Cols[$lang][$Name] } else { $Name }
     }
 
     # --------------------------------------------------------------------------- logging
     function Write-HSLog {
+        <#
+        .SYNOPSIS
+            Writes a timestamped log line to the GUI log queue (or the console) and to the log file. WARN lines are also collected for the report.
+        #>
         param([string]$Message, [ValidateSet('INFO', 'WARN', 'ERROR')][string]$Level = 'INFO')
         $line = '{0:HH:mm:ss} [{1}] {2}' -f (Get-Date), $Level, $Message
-        if ($Level -eq 'WARN' -and $null -ne $global:HS_Warnings) { $global:HS_Warnings.Add($Message) }
-        if ($global:HS_Sync) { $global:HS_Sync.Log.Enqueue($line) } else { [Console]::WriteLine($line) }
-        if ($global:HS_LogFile) { Add-Content -Path $global:HS_LogFile -Value $line -Encoding UTF8 }
+        if ($Level -eq 'WARN' -and $null -ne $script:HS_Warnings) { $script:HS_Warnings.Add($Message) }
+        if ($script:HS_Sync) { $script:HS_Sync.Log.Enqueue($line) } else { [Console]::WriteLine($line) }
+        if ($script:HS_LogFile) { Add-Content -Path $script:HS_LogFile -Value $line -Encoding UTF8 }
     }
 
     # --------------------------------------------------------------------------- configuration
@@ -590,9 +721,9 @@ $Core = {
             (Get-HSDefaultConfig) | ConvertTo-Json -Depth 6 | Set-Content -Path $Path -Encoding UTF8
         }
         $cfg = Get-Content -Path $Path -Raw -Encoding UTF8 | ConvertFrom-Json
-        $def = Get-HSDefaultConfig
-        foreach ($k in $def.Keys) {
-            if (-not ($cfg.PSObject.Properties.Name -contains $k)) { $cfg | Add-Member -NotePropertyName $k -NotePropertyValue $def[$k] }
+        $defaults = Get-HSDefaultConfig
+        foreach ($key in $defaults.Keys) {
+            if (-not ($cfg.PSObject.Properties.Name -contains $key)) { $cfg | Add-Member -NotePropertyName $key -NotePropertyValue $defaults[$key] }
         }
         if (-not $cfg.Language) { $cfg.Language = if ((Get-Culture).TwoLetterISOLanguageName -eq 'it') { 'it' } else { 'en' } }
         if (-not $cfg.DomainFqdn -and $env:USERDNSDOMAIN) { $cfg.DomainFqdn = $env:USERDNSDOMAIN.ToLower() }
@@ -606,9 +737,9 @@ $Core = {
 
     function Get-HSOutputFolder {
         param($Cfg)
-        $f = if ($Cfg.OutputFolder) { $Cfg.OutputFolder } else { Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'HybridScope' }
-        New-Item -ItemType Directory -Path $f -Force | Out-Null
-        $f
+        $folder = if ($Cfg.OutputFolder) { $Cfg.OutputFolder } else { Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'HybridScope' }
+        New-Item -ItemType Directory -Path $folder -Force | Out-Null
+        $folder
     }
 
     function Get-HSSources {
@@ -637,7 +768,7 @@ $Core = {
         catch { return $null }
     }
 
-    function ConvertTo-Num { param($v) if ("$v" -match '^\s*-?[\d\.]+\s*$') { [double]$v } else { 0 } }
+    function ConvertTo-Num { param($Value) if ("$Value" -match '^\s*-?[\d\.]+\s*$') { [double]$Value } else { 0 } }
 
     function ConvertTo-MB {
         # Accepts a live ByteQuantifiedSize, the deserialized string "194.3 MB (203,734,016 bytes)",
@@ -646,13 +777,13 @@ $Core = {
         if ($null -eq $Size) { return 0 }
         if ($Size.PSObject.Methods['ToBytes']) { return [math]::Round($Size.ToBytes() / 1MB, 2) }
         if ($Size.Value -and $Size.Value.PSObject.Methods['ToBytes']) { return [math]::Round($Size.Value.ToBytes() / 1MB, 2) }
-        $s = "$Size"
-        if ($s -match '\(([\d\.,\s'']+)\s*byte') { return [math]::Round(([double]($Matches[1] -replace '[^\d]', '')) / 1MB, 2) }
-        if ($s -match '([\d\.,]+)\s*(B|KB|MB|GB|TB)\b') {
-            $n = $Matches[1]
-            if ($n -match ',\d{1,2}$') { $n = $n -replace '\.', '' -replace ',', '.' } else { $n = $n -replace ',', '' }
+        $text = "$Size"
+        if ($text -match '\(([\d\.,\s'']+)\s*byte') { return [math]::Round(([double]($Matches[1] -replace '[^\d]', '')) / 1MB, 2) }
+        if ($text -match '([\d\.,]+)\s*(B|KB|MB|GB|TB)\b') {
+            $number = $Matches[1]
+            if ($number -match ',\d{1,2}$') { $number = $number -replace '\.', '' -replace ',', '.' } else { $number = $number -replace ',', '' }
             $mult = @{ B = 1 / 1MB; KB = 1 / 1KB; MB = 1; GB = 1KB; TB = 1MB }[$Matches[2]]
-            return [math]::Round([double]$n * $mult, 2)
+            return [math]::Round([double]$number * $mult, 2)
         }
         return 0
     }
@@ -661,9 +792,9 @@ $Core = {
         param([string]$Uri)
         $out = [System.Collections.Generic.List[object]]::new()
         while ($Uri) {
-            $r = Invoke-MgGraphRequest -Method GET -Uri $Uri -OutputType PSObject
-            if ($r.value) { foreach ($v in $r.value) { $out.Add($v) } }
-            $Uri = $r.'@odata.nextLink'
+            $page = Invoke-MgGraphRequest -Method GET -Uri $Uri -OutputType PSObject
+            if ($page.value) { foreach ($item in $page.value) { $out.Add($item) } }
+            $Uri = $page.'@odata.nextLink'
         }
         , $out
     }
@@ -678,7 +809,7 @@ $Core = {
         finally { Remove-Item $tmp -ErrorAction SilentlyContinue }
     }
 
-    $global:HS_MethodNames = @{
+    $script:HS_MethodNames = @{
         microsoftAuthenticatorPush         = 'Microsoft Authenticator (push)'
         microsoftAuthenticatorPasswordless = 'Microsoft Authenticator (passwordless)'
         microsoftAuthenticator             = 'Microsoft Authenticator'
@@ -703,26 +834,30 @@ $Core = {
         securityQuestion                   = 'Security questions'
         appPassword                        = 'App password'
     }
-    function Get-MethodName { param($m) if ($global:HS_MethodNames.ContainsKey("$m")) { $global:HS_MethodNames["$m"] } else { "$m" } }
+    function Get-MethodName { param($MethodId) if ($script:HS_MethodNames.ContainsKey("$MethodId")) { $script:HS_MethodNames["$MethodId"] } else { "$MethodId" } }
 
     # --------------------------------------------------------------------------- connections
     function Connect-HS365 {
+        <#
+        .SYNOPSIS
+            Connects to Microsoft Graph: browser sign-in with delegated scopes, or app + certificate with -Unattended. Returns the signed-in account / app name.
+        #>
         param($Cfg, [switch]$Unattended)
         Import-Module Microsoft.Graph.Authentication -ErrorAction Stop
         $scopes = 'User.Read.All', 'AuditLog.Read.All', 'Reports.Read.All', 'UserAuthenticationMethod.Read.All', 'Organization.Read.All', 'Policy.Read.All'
-        $p = @{ NoWelcome = $true }
-        if ($Cfg.TenantId) { $p.TenantId = $Cfg.TenantId }
+        $connectParams = @{ NoWelcome = $true }
+        if ($Cfg.TenantId) { $connectParams.TenantId = $Cfg.TenantId }
         if ($Unattended) {
-            $p.ClientId = $Cfg.ClientId; $p.CertificateThumbprint = $Cfg.CertificateThumbprint
+            $connectParams.ClientId = $Cfg.ClientId; $connectParams.CertificateThumbprint = $Cfg.CertificateThumbprint
         }
         else {
             # WAM needs a window handle: in the GUI the browser sign-in is used instead
             try { Set-MgGraphOption -DisableLoginByWAM $true } catch { }
-            $p.Scopes = $scopes
+            $connectParams.Scopes = $scopes
             # do not persist the sign-in between sessions: no silent re-login with the wrong account
-            $p.ContextScope = 'Process'
+            $connectParams.ContextScope = 'Process'
         }
-        Connect-MgGraph @p
+        Connect-MgGraph @connectParams
         $ctx = Get-MgContext
         if (-not $ctx) { throw (T 'err.graphConnect') }
         $who = if ($ctx.Account) { $ctx.Account } else { "app $($ctx.AppName)" }
@@ -731,44 +866,48 @@ $Core = {
     }
 
     function Connect-HSExchange {
+        <#
+        .SYNOPSIS
+            Connects to Exchange on-premises (Remote PowerShell over http/https, or the local snap-in) and imports only the read cmdlets HybridScope uses.
+        #>
         # ExchangeProtocol:
         #   http  = Remote PowerShell (WinRM) on http://<server>/PowerShell/ with Kerberos - Microsoft's standard,
         #           traffic is encrypted by Kerberos, no certificate needed
         #   https = same over https (requires a valid certificate for that name)
         #   local = local Exchange Management Shell snap-in: only when HybridScope runs ON the Exchange server
         param($Cfg, [pscredential]$Credential)
-        if ($global:HS_ExSession) { Remove-PSSession $global:HS_ExSession -ErrorAction SilentlyContinue; $global:HS_ExSession = $null }
-        $global:HS_ExMode = $null
+        if ($script:HS_ExSession) { Remove-PSSession $script:HS_ExSession -ErrorAction SilentlyContinue; $script:HS_ExSession = $null }
+        $script:HS_ExMode = $null
         if ($Cfg.ExchangeProtocol -eq 'local') {
             Write-HSLog (T 'log.exchLocal')
             if (-not (Get-PSSnapin -Name Microsoft.Exchange.Management.PowerShell.SnapIn -ErrorAction SilentlyContinue)) {
                 Add-PSSnapin Microsoft.Exchange.Management.PowerShell.SnapIn
             }
-            $global:HS_ExMode = 'local'
+            $script:HS_ExMode = 'local'
             $info = "local ($env:COMPUTERNAME)"
         }
         else {
             $uri = "$($Cfg.ExchangeProtocol)://$($Cfg.ExchangeServer)/PowerShell/"
-            $p = @{ ConfigurationName = 'Microsoft.Exchange'; ConnectionUri = $uri; Authentication = $Cfg.ExchangeAuth; AllowRedirection = $true }
+            $sessionParams = @{ ConfigurationName = 'Microsoft.Exchange'; ConnectionUri = $uri; Authentication = $Cfg.ExchangeAuth; AllowRedirection = $true }
             if ($Credential) {
                 # Kerberos from a non-domain PC needs the full realm: DOMAIN\user -> user@domain.fqdn
                 if ($Cfg.ExchangeAuth -eq 'Kerberos' -and $Credential.UserName -match '^[^\\@]+\\(.+)$' -and $Cfg.DomainFqdn) {
                     $Credential = New-Object System.Management.Automation.PSCredential ("$($Matches[1])@$($Cfg.DomainFqdn)", $Credential.Password)
                 }
-                $p.Credential = $Credential
+                $sessionParams.Credential = $Credential
             }
-            if ($Cfg.ExchangeSkipCertCheck) { $p.SessionOption = New-PSSessionOption -SkipCACheck -SkipCNCheck -SkipRevocationCheck }
+            if ($Cfg.ExchangeSkipCertCheck) { $sessionParams.SessionOption = New-PSSessionOption -SkipCACheck -SkipCNCheck -SkipRevocationCheck }
             Write-HSLog (T 'log.exchConnecting' @($uri, $Cfg.ExchangeAuth))
-            $s = New-PSSession @p
-            $mod = Import-PSSession $s -CommandName Get-Mailbox, Get-MailboxStatistics, Get-RemoteMailbox, Get-ExchangeServer -AllowClobber -DisableNameChecking
+            $session = New-PSSession @sessionParams
+            $mod = Import-PSSession $session -CommandName Get-Mailbox, Get-MailboxStatistics, Get-RemoteMailbox, Get-ExchangeServer -AllowClobber -DisableNameChecking
             Import-Module $mod -Global -DisableNameChecking
-            $global:HS_ExSession = $s
-            $global:HS_ExMode = 'remote'
+            $script:HS_ExSession = $session
+            $script:HS_ExMode = 'remote'
             $info = "$($Cfg.ExchangeServer)"
         }
         try {
-            $srv = @(Get-ExchangeServer -WarningAction SilentlyContinue)
-            $info += " - $($srv.Count) server ($(@($srv | ForEach-Object { $_.Name }) -join ', '))"
+            $servers = @(Get-ExchangeServer -WarningAction SilentlyContinue)
+            $info += " - $($servers.Count) server ($(@($servers | ForEach-Object { $_.Name }) -join ', '))"
         }
         catch { }
         Write-HSLog (T 'log.exchConnected' $info)
@@ -785,24 +924,28 @@ $Core = {
             (Join-Path $env:LOCALAPPDATA '.IdentityService\mg.msal.cache.nocae'),
             (Join-Path $env:LOCALAPPDATA '.IdentityService\mg.msal.cache.cae')
         )
-        foreach ($p in $paths) { if (Test-Path $p) { Remove-Item $p -Recurse -Force -ErrorAction SilentlyContinue } }
+        foreach ($cachePath in $paths) { if (Test-Path $cachePath) { Remove-Item $cachePath -Recurse -Force -ErrorAction SilentlyContinue } }
         Write-HSLog (T 'log.signedOut')
     }
 
     function Test-HSAD {
+        <#
+        .SYNOPSIS
+            Checks that the AD domain in Cfg.DomainFqdn is reachable (optionally with Credential). Returns the DNS root.
+        #>
         param($Cfg, [pscredential]$Credential)
         Import-Module ActiveDirectory -ErrorAction Stop
-        $p = @{ Server = $Cfg.DomainFqdn }
-        if ($Credential) { $p.Credential = $Credential }
-        $d = Get-ADDomain @p
-        Write-HSLog (T 'log.adOk' @($d.DNSRoot, $d.PDCEmulator))
-        "$($d.DNSRoot)"
+        $adParams = @{ Server = $Cfg.DomainFqdn }
+        if ($Credential) { $adParams.Credential = $Credential }
+        $domain = Get-ADDomain @adParams
+        Write-HSLog (T 'log.adOk' @($domain.DNSRoot, $domain.PDCEmulator))
+        "$($domain.DNSRoot)"
     }
 
     function Install-HSRsatAD {
         # Runs tools\Install-RsatAD.ps1 (plain text, shipped with HybridScope) in a VISIBLE elevated
         # PowerShell window: Windows shows the UAC prompt.
-        $installer = Join-Path $global:HS_AppDir 'tools\Install-RsatAD.ps1'
+        $installer = Join-Path $script:HS_AppDir 'tools\Install-RsatAD.ps1'
         if (-not (Test-Path $installer)) { throw (T 'err.rsatFile' $installer) }
         Write-HSLog (T 'log.rsat')
         $proc = Start-Process -FilePath powershell.exe -Verb RunAs -Wait -PassThru -ArgumentList '-NoProfile', '-File', "`"$installer`""
@@ -811,190 +954,338 @@ $Core = {
         Write-HSLog (T 'log.rsatOk')
     }
 
+    # --------------------------------------------------------------------------- collectors
+    # One function per data source. Get-HSData calls them all and merges the results;
+    # -Only calls just the one it needs (see Get-HSDataset).
+
+    function Format-HSYesNo {
+        <#
+        .SYNOPSIS
+            Localized Yes / No for a true / false value.
+        #>
+        param($Value)
+        if ($Value) { T 'val.yes' } else { T 'val.no' }
+    }
+
+    function Get-HSLicenseNameMap {
+        <#
+        .SYNOPSIS
+            Friendly license names from Cfg.LicenseNames, as a hashtable SKU part number -> name.
+        #>
+        param($Cfg)
+        $map = @{}
+        if ($Cfg.LicenseNames) { foreach ($entry in $Cfg.LicenseNames.PSObject.Properties) { $map[$entry.Name] = "$($entry.Value)" } }
+        $map
+    }
+
+    function Get-HSSubscribedSku {
+        <#
+        .SYNOPSIS
+            The tenant's license SKUs (Microsoft Graph subscribedSkus).
+        #>
+        $skus = Invoke-GraphPaged 'v1.0/subscribedSkus'
+        Write-HSLog (T 'log.skus' $skus.Count)
+        , $skus
+    }
+
+    function Get-HSEntraUser {
+        <#
+        .SYNOPSIS
+            Every Entra ID user with the properties HybridScope uses. Last sign-in needs Entra ID P1:
+            without it the users are read again without sign-in data and a warning is logged.
+            -NoSignIn skips the sign-in data (and the warning) when it is not needed.
+        #>
+        param([switch]$NoSignIn)
+        $select = 'id,displayName,givenName,surname,userPrincipalName,mail,accountEnabled,assignedLicenses,provisionedPlans,onPremisesSamAccountName,onPremisesSyncEnabled,userType,createdDateTime'
+        if ($NoSignIn) { $users = Invoke-GraphPaged ('v1.0/users?$top=999&$select=' + $select) }
+        else {
+            try { $users = Invoke-GraphPaged ('v1.0/users?$top=120&$select=' + $select + ',signInActivity') }
+            catch {
+                Write-HSLog (T 'warn.signin' $_.Exception.Message) 'WARN'
+                $users = Invoke-GraphPaged ('v1.0/users?$top=999&$select=' + $select)
+            }
+        }
+        Write-HSLog (T 'log.entraUsers' $users.Count)
+        , $users
+    }
+
+    function Get-HSMfaRegistration {
+        <#
+        .SYNOPSIS
+            MFA registration of every Entra user. Uses the registration report (Entra ID P1); without it
+            reads the methods user by user. With Cfg.IncludePerUserMfaState also reads the legacy
+            per-user MFA state.
+            Returns @{ Registration = @{ <user id> = details }; PerUser = @{ <user id> = state } }.
+        #>
+        param($Cfg, $EntraUsers)
+        $registration = @{}
+        try {
+            foreach ($regDetail in (Invoke-GraphPaged 'v1.0/reports/authenticationMethods/userRegistrationDetails')) {
+                $registration[$regDetail.id] = [pscustomobject]@{
+                    isMfaRegistered  = [bool]$regDetail.isMfaRegistered
+                    isMfaCapable     = [bool]$regDetail.isMfaCapable
+                    isSsprRegistered = [bool]$regDetail.isSsprRegistered
+                    isAdmin          = [bool]$regDetail.isAdmin
+                    methods          = @($regDetail.methodsRegistered)
+                    defaultMethod    = $regDetail.userPreferredMethodForSecondaryAuthentication
+                    systemDefault    = if ($regDetail.isSystemPreferredAuthenticationMethodEnabled) { @($regDetail.systemPreferredAuthenticationMethods)[0] } else { $null }
+                }
+            }
+            Write-HSLog (T 'log.mfaReg' $registration.Count)
+        }
+        catch {
+            Write-HSLog (T 'warn.mfaReport' $_.Exception.Message) 'WARN'
+            $members = @($EntraUsers | Where-Object { $_.userType -eq 'Member' }); $i = 0
+            foreach ($member in $members) {
+                $i++; if ($i % 50 -eq 0) { Write-HSLog (T 'log.mfaProgress' @($i, $members.Count)) }
+                try {
+                    $authMethods = Invoke-GraphPaged "v1.0/users/$($member.id)/authentication/methods"
+                    $methodTypes = @($authMethods | ForEach-Object { ($_.'@odata.type' -replace '#microsoft.graph.', '') -replace 'AuthenticationMethod$', '' } | Where-Object { $_ -ne 'password' })
+                    $isMfa = [bool](@($methodTypes | Where-Object { $_ -ne 'email' }).Count)
+                    $registration[$member.id] = [pscustomobject]@{ isMfaRegistered = $isMfa; isMfaCapable = $isMfa; isSsprRegistered = $false; isAdmin = $false; methods = $methodTypes; defaultMethod = $null; systemDefault = $null }
+                }
+                catch { }
+            }
+        }
+
+        # per-user MFA state (beta endpoint, one call per user)
+        $perUser = @{}
+        if ($Cfg.IncludePerUserMfaState) {
+            Write-HSLog (T 'log.perUser')
+            $members = @($EntraUsers | Where-Object { $_.userType -eq 'Member' }); $i = 0
+            foreach ($member in $members) {
+                $i++; if ($i % 100 -eq 0) { Write-HSLog (T 'log.perUserProgress' @($i, $members.Count)) }
+                try { $perUser[$member.id] = (Invoke-MgGraphRequest -Method GET -Uri "beta/users/$($member.id)/authentication/requirements" -OutputType PSObject).perUserMfaState }
+                catch { Write-HSLog (T 'warn.perUser' $_.Exception.Message) 'WARN'; break }
+            }
+        }
+        @{ Registration = $registration; PerUser = $perUser }
+    }
+
+    function Get-HSDefaultMethodName {
+        <#
+        .SYNOPSIS
+            Display name of a user's default MFA method (system-preferred first, then user-preferred).
+        #>
+        param($Registration)
+        $method = if ($Registration.systemDefault -and $Registration.systemDefault -ne 'none') { $Registration.systemDefault } else { $Registration.defaultMethod }
+        if ($method -and $method -ne 'none') { Get-MethodName $method } else { '' }
+    }
+
+    function Get-HSMethodList {
+        <#
+        .SYNOPSIS
+            Display names of all MFA methods a user has registered, comma separated.
+        #>
+        param($Registration)
+        (@($Registration.methods) | Where-Object { $_ } | ForEach-Object { Get-MethodName $_ } | Select-Object -Unique) -join ', '
+    }
+
+    function ConvertTo-HSMfaRow {
+        <#
+        .SYNOPSIS
+            Rows of the MFA tab: one per Entra member (guests too with Cfg.IncludeGuests).
+        #>
+        param($Cfg, $EntraUsers, $Mfa)
+        @(foreach ($entraUser in ($EntraUsers | Where-Object { $_.userType -eq 'Member' -or $Cfg.IncludeGuests } | Sort-Object userPrincipalName)) {
+                $reg = $Mfa.Registration[$entraUser.id]
+                [pscustomobject][ordered]@{
+                    UPN             = $entraUser.userPrincipalName
+                    DisplayName     = $entraUser.displayName
+                    Enabled         = Format-HSYesNo $entraUser.accountEnabled
+                    SyncedFromAD    = Format-HSYesNo $entraUser.onPremisesSyncEnabled
+                    MFA_Registered  = Format-HSYesNo ($reg -and $reg.isMfaRegistered)
+                    MFA_Capable     = Format-HSYesNo ($reg -and $reg.isMfaCapable)
+                    DefaultMethod   = if ($reg) { Get-HSDefaultMethodName $reg } else { '' }
+                    Methods         = if ($reg) { Get-HSMethodList $reg } else { '' }
+                    PerUserState    = if ($Mfa.PerUser.ContainsKey($entraUser.id)) { "$($Mfa.PerUser[$entraUser.id])" } else { '' }
+                    SSPR_Registered = Format-HSYesNo ($reg -and $reg.isSsprRegistered)
+                    Admin           = Format-HSYesNo ($reg -and $reg.isAdmin)
+                }
+            })
+    }
+
+    function ConvertTo-HSLicenseRow {
+        <#
+        .SYNOPSIS
+            Rows of the TENANT_LICENSES tab: purchased / assigned / available per SKU.
+        #>
+        param($Skus, [hashtable]$LicenseNames)
+        @(foreach ($sku in ($Skus | Sort-Object skuPartNumber)) {
+                $purchased = [int]$sku.prepaidUnits.enabled; $assigned = [int]$sku.consumedUnits
+                [pscustomobject][ordered]@{
+                    SKU       = $sku.skuPartNumber
+                    Name      = if ($LicenseNames.ContainsKey($sku.skuPartNumber)) { $LicenseNames[$sku.skuPartNumber] } else { '' }
+                    Purchased = $purchased
+                    Assigned  = $assigned
+                    Available = $purchased - $assigned
+                    Suspended = [int]$sku.prepaidUnits.suspended
+                    Warning   = [int]$sku.prepaidUnits.warning
+                    Status    = $sku.capabilityStatus
+                }
+            })
+    }
+
+    function Get-HSMailbox365Usage {
+        <#
+        .SYNOPSIS
+            Exchange Online mailbox usage report (last 7 days).
+            Returns @{ SizeByUpn = @{ <upn> = MB }; Rows = <MAILBOX_365 tab>; Concealed = <report anonymized> }.
+        #>
+        $sizeByUpn = @{}; $rows = [System.Collections.Generic.List[object]]::new(); $concealed = $false
+        foreach ($reportRow in (Get-GraphReportCsv "v1.0/reports/getMailboxUsageDetail(period='D7')")) {
+            if ($reportRow.'Is Deleted' -eq 'True') { continue }
+            $upn = $reportRow.'User Principal Name'; if ($upn -notlike '*@*') { $concealed = $true }
+            $sizeMB = [math]::Round((ConvertTo-Num $reportRow.'Storage Used (Byte)') / 1MB, 2)
+            $sizeByUpn[$upn] = $sizeMB
+            $rows.Add([pscustomobject][ordered]@{
+                    UPN             = $upn
+                    DisplayName     = $reportRow.'Display Name'
+                    Type            = $reportRow.'Recipient Type'
+                    Size_MB         = $sizeMB
+                    Items           = ConvertTo-Num $reportRow.'Item Count'
+                    Deleted_MB      = [math]::Round((ConvertTo-Num $reportRow.'Deleted Item Size (Byte)') / 1MB, 2)
+                    WarningQuota_GB = [math]::Round((ConvertTo-Num $reportRow.'Issue Warning Quota (Byte)') / 1GB, 2)
+                    SendQuota_GB    = [math]::Round((ConvertTo-Num $reportRow.'Prohibit Send Quota (Byte)') / 1GB, 2)
+                    Archive         = $reportRow.'Has Archive'
+                    LastActivity    = ConvertTo-LocalDate $reportRow.'Last Activity Date'
+                    Created         = ConvertTo-LocalDate $reportRow.'Created Date'
+                })
+        }
+        @{ SizeByUpn = $sizeByUpn; Rows = $rows; Concealed = $concealed }
+    }
+
+    function Get-HSOneDriveUsage {
+        <#
+        .SYNOPSIS
+            OneDrive usage report (last 7 days).
+            Returns @{ SizeByUpn = @{ <upn> = MB }; Rows = <ONEDRIVE tab>; Concealed = <report anonymized> }.
+        #>
+        $sizeByUpn = @{}; $rows = [System.Collections.Generic.List[object]]::new(); $concealed = $false
+        foreach ($reportRow in (Get-GraphReportCsv "v1.0/reports/getOneDriveUsageAccountDetail(period='D7')")) {
+            if ($reportRow.'Is Deleted' -eq 'True') { continue }
+            $upn = $reportRow.'Owner Principal Name'; if ($upn -notlike '*@*') { $concealed = $true }
+            $sizeMB = [math]::Round((ConvertTo-Num $reportRow.'Storage Used (Byte)') / 1MB, 2)
+            $sizeByUpn[$upn] = $sizeMB
+            $rows.Add([pscustomobject][ordered]@{
+                    UPN          = $upn
+                    DisplayName  = $reportRow.'Owner Display Name'
+                    Size_MB      = $sizeMB
+                    Quota_GB     = [math]::Round((ConvertTo-Num $reportRow.'Storage Allocated (Byte)') / 1GB, 2)
+                    Files        = ConvertTo-Num $reportRow.'File Count'
+                    ActiveFiles  = ConvertTo-Num $reportRow.'Active File Count'
+                    LastActivity = ConvertTo-LocalDate $reportRow.'Last Activity Date'
+                    URL          = $reportRow.'Site URL'
+                })
+        }
+        @{ SizeByUpn = $sizeByUpn; Rows = $rows; Concealed = $concealed }
+    }
+
+    function Get-HSExchangeMailbox {
+        <#
+        .SYNOPSIS
+            On-premises mailboxes with their statistics, plus remote mailboxes (already moved to Exchange
+            Online). Connects to Exchange first when there is no open session.
+            Returns @{ BySam = @{ <sam> = size / count / type }; RemoteBySam = @{ <sam> = type }; Rows = <MAILBOX_ONPREM tab> }.
+        #>
+        param($Cfg, [pscredential]$Credential)
+        $sessionOk = ($script:HS_ExMode -eq 'local' -or ($script:HS_ExSession -and $script:HS_ExSession.State -eq 'Opened')) -and (Get-Command Get-MailboxStatistics -ErrorAction SilentlyContinue)
+        if (-not $sessionOk) { Connect-HSExchange -Cfg $Cfg -Credential $Credential | Out-Null }
+
+        $bySam = @{}; $remoteBySam = @{}; $rows = [System.Collections.Generic.List[object]]::new()
+        $mailboxes = @(Get-Mailbox -ResultSize Unlimited -WarningAction SilentlyContinue)
+        Write-HSLog (T 'log.mbxOnPrem' $mailboxes.Count)
+        try {
+            foreach ($remoteMbx in @(Get-RemoteMailbox -ResultSize Unlimited -WarningAction SilentlyContinue)) { $remoteBySam["$($remoteMbx.SamAccountName)"] = "$($remoteMbx.RecipientTypeDetails)" }
+            Write-HSLog (T 'log.remoteMbx' $remoteBySam.Count)
+        }
+        catch { Write-HSLog (T 'warn.remoteMbx' $_.Exception.Message) 'WARN' }
+        $i = 0
+        foreach ($mbx in $mailboxes) {
+            $i++; if ($i % 50 -eq 0) { Write-HSLog (T 'log.statsProgress' @($i, $mailboxes.Count)) }
+            $stats = $null
+            try { $stats = Get-MailboxStatistics -Identity "$($mbx.DistinguishedName)" -WarningAction SilentlyContinue -ErrorAction Stop }
+            catch { Write-HSLog (T 'warn.stats' @($mbx.SamAccountName, $_.Exception.Message)) 'WARN' }
+            $sizeMB = if ($stats) { ConvertTo-MB $stats.TotalItemSize } else { 0 }
+            $sam = "$($mbx.SamAccountName)"
+            if ($bySam.ContainsKey($sam)) { $bySam[$sam].SizeMB += $sizeMB; $bySam[$sam].Count++ }
+            else { $bySam[$sam] = [pscustomobject]@{ SizeMB = $sizeMB; Count = 1; Type = "$($mbx.RecipientTypeDetails)" } }
+            $rows.Add([pscustomobject][ordered]@{
+                    Username      = $sam
+                    DisplayName   = "$($mbx.DisplayName)"
+                    Type          = "$($mbx.RecipientTypeDetails)"
+                    Email         = "$($mbx.PrimarySmtpAddress)"
+                    Database      = "$($mbx.Database)"
+                    Size_MB       = $sizeMB
+                    Items         = if ($stats) { [double]$stats.ItemCount } else { $null }
+                    Deleted_MB    = if ($stats) { ConvertTo-MB $stats.TotalDeletedItemSize } else { $null }
+                    LastLogon     = if ($stats) { ConvertTo-LocalDate $stats.LastLogonTime } else { $null }
+                    Quota         = if ($mbx.UseDatabaseQuotaDefaults) { T 'quota.dbDefault' } else { "$($mbx.ProhibitSendQuota)" }
+                    HiddenFromGAL = Format-HSYesNo ("$($mbx.HiddenFromAddressListsEnabled)" -eq 'True')
+                })
+        }
+        @{ BySam = $bySam; RemoteBySam = $remoteBySam; Rows = $rows }
+    }
     # --------------------------------------------------------------------------- data collection
     function Get-HSData {
+        <#
+        .SYNOPSIS
+            Full report: runs the collectors for the sources of the selected Mode, merges them into one row per user and builds every tab. Returns Tables, Totals, Warnings and metadata. Microsoft 365 needs an existing Graph connection.
+        #>
         param($Cfg, [pscredential]$ADCredential, [pscredential]$ExchangeCredential, [hashtable]$Sources)
 
         $ErrorActionPreference = 'Stop'
         $Src = if ($Sources) { $Sources } else { Get-HSSources $Cfg.Mode }
-        $global:HS_Warnings = [System.Collections.Generic.List[string]]::new()
+        $script:HS_Warnings = [System.Collections.Generic.List[string]]::new()
         $Now = Get-Date
         $InactiveCut = $Now.AddDays( - [int]$Cfg.InactiveDays)
         $PwdCut = $Now.AddDays( - [int]$Cfg.PasswordAgeDays)
-        $V = @{
-            Enabled = T 'val.enabled'; Disabled = T 'val.disabled'; None = T 'val.none'; Yes = T 'val.yes'; No = T 'val.no'
+        $Labels = @{
+            Enabled = T 'val.enabled'; Disabled = T 'val.disabled'; None = T 'val.none'
             MfaYes = T 'val.mfaYes'; MfaNo = T 'val.mfaNo'; MfaNotInEntra = T 'val.mfaNotInEntra'
             Synced = T 'val.originSynced'; ADOnly = T 'val.originAD'; Cloud = T 'val.originCloud'; Guest = T 'val.originGuest'
         }
-        $yn = { param($b) if ($b) { $V.Yes } else { $V.No } }
-
-        # friendly license names (SKU -> name)
-        $LicenseNames = @{}
-        if ($Cfg.LicenseNames) { foreach ($p in $Cfg.LicenseNames.PSObject.Properties) { $LicenseNames[$p.Name] = "$($p.Value)" } }
+        $LicenseNames = Get-HSLicenseNameMap $Cfg
         $MappedOnly = ($Cfg.LicenseFilter -eq 'MappedOnly')
 
         if ($Src.M365 -and -not (Get-MgContext)) { throw (T 'err.not365') }
 
         $skus = @(); $SkuMap = @{}; $entra = @(); $EntraBySam = @{}; $EntraByUpn = @{}; $EntraByLocal = @{}
         $MfaReg = @{}; $PerUser = @{}; $Mbx365 = @{}; $OneDrive = @{}
-        $TabMbx365 = [System.Collections.Generic.List[object]]::new(); $TabOD = [System.Collections.Generic.List[object]]::new()
-        $defMethod = {
-            param($r)
-            $d = if ($r.systemDefault -and $r.systemDefault -ne 'none') { $r.systemDefault } else { $r.defaultMethod }
-            if ($d -and $d -ne 'none') { Get-MethodName $d } else { '' }
-        }
+        $TabMbx365 = @(); $TabOD = @()
 
         # ================================================= MICROSOFT GRAPH
         if ($Src.M365) {
-        $skus = Invoke-GraphPaged 'v1.0/subscribedSkus'
-        $SkuMap = @{}; foreach ($s in $skus) { $SkuMap["$($s.skuId)"] = $s.skuPartNumber }
-        Write-HSLog (T 'log.skus' $skus.Count)
+            $skus = Get-HSSubscribedSku
+            foreach ($sku in $skus) { $SkuMap["$($sku.skuId)"] = $sku.skuPartNumber }
 
-        $sel = 'id,displayName,givenName,surname,userPrincipalName,mail,accountEnabled,assignedLicenses,provisionedPlans,onPremisesSamAccountName,onPremisesSyncEnabled,userType,createdDateTime'
-        try { $entra = Invoke-GraphPaged ('v1.0/users?$top=120&$select=' + $sel + ',signInActivity') }
-        catch {
-            Write-HSLog (T 'warn.signin' $_.Exception.Message) 'WARN'
-            $entra = Invoke-GraphPaged ('v1.0/users?$top=999&$select=' + $sel)
-        }
-        Write-HSLog (T 'log.entraUsers' $entra.Count)
-
-        $EntraBySam = @{}; $EntraByUpn = @{}; $EntraByLocal = @{}
-        foreach ($u in $entra) {
-            if ($u.onPremisesSamAccountName -and -not $EntraBySam.ContainsKey($u.onPremisesSamAccountName)) { $EntraBySam[$u.onPremisesSamAccountName] = $u }
-            $EntraByUpn[$u.userPrincipalName] = $u
-            $local = ($u.userPrincipalName -split '@')[0]
-            if (-not $EntraByLocal.ContainsKey($local) -or $u.userPrincipalName -notlike '*.onmicrosoft.com') { $EntraByLocal[$local] = $u }
-        }
-
-        # MFA registration
-        $MfaReg = @{}
-        try {
-            foreach ($r in (Invoke-GraphPaged 'v1.0/reports/authenticationMethods/userRegistrationDetails')) {
-                $MfaReg[$r.id] = [pscustomobject]@{
-                    isMfaRegistered  = [bool]$r.isMfaRegistered
-                    isMfaCapable     = [bool]$r.isMfaCapable
-                    isSsprRegistered = [bool]$r.isSsprRegistered
-                    isAdmin          = [bool]$r.isAdmin
-                    methods          = @($r.methodsRegistered)
-                    defaultMethod    = $r.userPreferredMethodForSecondaryAuthentication
-                    systemDefault    = if ($r.isSystemPreferredAuthenticationMethodEnabled) { @($r.systemPreferredAuthenticationMethods)[0] } else { $null }
-                }
+            $entra = Get-HSEntraUser
+            foreach ($entraUser in $entra) {
+                if ($entraUser.onPremisesSamAccountName -and -not $EntraBySam.ContainsKey($entraUser.onPremisesSamAccountName)) { $EntraBySam[$entraUser.onPremisesSamAccountName] = $entraUser }
+                $EntraByUpn[$entraUser.userPrincipalName] = $entraUser
+                $local = ($entraUser.userPrincipalName -split '@')[0]
+                if (-not $EntraByLocal.ContainsKey($local) -or $entraUser.userPrincipalName -notlike '*.onmicrosoft.com') { $EntraByLocal[$local] = $entraUser }
             }
-            Write-HSLog (T 'log.mfaReg' $MfaReg.Count)
-        }
-        catch {
-            Write-HSLog (T 'warn.mfaReport' $_.Exception.Message) 'WARN'
-            $members = @($entra | Where-Object { $_.userType -eq 'Member' }); $i = 0
-            foreach ($u in $members) {
-                $i++; if ($i % 50 -eq 0) { Write-HSLog (T 'log.mfaProgress' @($i, $members.Count)) }
-                try {
-                    $m = Invoke-GraphPaged "v1.0/users/$($u.id)/authentication/methods"
-                    $types = @($m | ForEach-Object { ($_.'@odata.type' -replace '#microsoft.graph.', '') -replace 'AuthenticationMethod$', '' } | Where-Object { $_ -ne 'password' })
-                    $isMfa = [bool](@($types | Where-Object { $_ -ne 'email' }).Count)
-                    $MfaReg[$u.id] = [pscustomobject]@{ isMfaRegistered = $isMfa; isMfaCapable = $isMfa; isSsprRegistered = $false; isAdmin = $false; methods = $types; defaultMethod = $null; systemDefault = $null }
-                }
-                catch { }
-            }
-        }
 
-        # Per-user MFA state (beta)
-        $PerUser = @{}
-        if ($Cfg.IncludePerUserMfaState) {
-            Write-HSLog (T 'log.perUser')
-            $members = @($entra | Where-Object { $_.userType -eq 'Member' }); $i = 0
-            foreach ($u in $members) {
-                $i++; if ($i % 100 -eq 0) { Write-HSLog (T 'log.perUserProgress' @($i, $members.Count)) }
-                try { $PerUser[$u.id] = (Invoke-MgGraphRequest -Method GET -Uri "beta/users/$($u.id)/authentication/requirements" -OutputType PSObject).perUserMfaState }
-                catch { Write-HSLog (T 'warn.perUser' $_.Exception.Message) 'WARN'; break }
-            }
-        }
+            $mfaData = Get-HSMfaRegistration -Cfg $Cfg -EntraUsers $entra
+            $MfaReg = $mfaData.Registration; $PerUser = $mfaData.PerUser
 
-        # Usage reports: Exchange Online mailboxes / OneDrive
-        $Concealed = $false
-        $Mbx365 = @{}; $TabMbx365 = [System.Collections.Generic.List[object]]::new()
-        foreach ($r in (Get-GraphReportCsv "v1.0/reports/getMailboxUsageDetail(period='D7')")) {
-            if ($r.'Is Deleted' -eq 'True') { continue }
-            $upn = $r.'User Principal Name'; if ($upn -notlike '*@*') { $Concealed = $true }
-            $mb = [math]::Round((ConvertTo-Num $r.'Storage Used (Byte)') / 1MB, 2)
-            $Mbx365[$upn] = $mb
-            $TabMbx365.Add([pscustomobject][ordered]@{
-                    UPN             = $upn
-                    DisplayName     = $r.'Display Name'
-                    Type            = $r.'Recipient Type'
-                    Size_MB         = $mb
-                    Items           = ConvertTo-Num $r.'Item Count'
-                    Deleted_MB      = [math]::Round((ConvertTo-Num $r.'Deleted Item Size (Byte)') / 1MB, 2)
-                    WarningQuota_GB = [math]::Round((ConvertTo-Num $r.'Issue Warning Quota (Byte)') / 1GB, 2)
-                    SendQuota_GB    = [math]::Round((ConvertTo-Num $r.'Prohibit Send Quota (Byte)') / 1GB, 2)
-                    Archive         = $r.'Has Archive'
-                    LastActivity    = ConvertTo-LocalDate $r.'Last Activity Date'
-                    Created         = ConvertTo-LocalDate $r.'Created Date'
-                })
+            $mailboxUsage = Get-HSMailbox365Usage
+            $oneDriveUsage = Get-HSOneDriveUsage
+            $Mbx365 = $mailboxUsage.SizeByUpn; $TabMbx365 = $mailboxUsage.Rows
+            $OneDrive = $oneDriveUsage.SizeByUpn; $TabOD = $oneDriveUsage.Rows
+            Write-HSLog (T 'log.reports' @($Mbx365.Count, $OneDrive.Count))
+            if ($mailboxUsage.Concealed -or $oneDriveUsage.Concealed) { Write-HSLog (T 'warn.concealed') 'WARN' }
         }
-        $OneDrive = @{}; $TabOD = [System.Collections.Generic.List[object]]::new()
-        foreach ($r in (Get-GraphReportCsv "v1.0/reports/getOneDriveUsageAccountDetail(period='D7')")) {
-            if ($r.'Is Deleted' -eq 'True') { continue }
-            $upn = $r.'Owner Principal Name'; if ($upn -notlike '*@*') { $Concealed = $true }
-            $mb = [math]::Round((ConvertTo-Num $r.'Storage Used (Byte)') / 1MB, 2)
-            $OneDrive[$upn] = $mb
-            $TabOD.Add([pscustomobject][ordered]@{
-                    UPN          = $upn
-                    DisplayName  = $r.'Owner Display Name'
-                    Size_MB      = $mb
-                    Quota_GB     = [math]::Round((ConvertTo-Num $r.'Storage Allocated (Byte)') / 1GB, 2)
-                    Files        = ConvertTo-Num $r.'File Count'
-                    ActiveFiles  = ConvertTo-Num $r.'Active File Count'
-                    LastActivity = ConvertTo-LocalDate $r.'Last Activity Date'
-                    URL          = $r.'Site URL'
-                })
-        }
-        Write-HSLog (T 'log.reports' @($Mbx365.Count, $OneDrive.Count))
-        if ($Concealed) { Write-HSLog (T 'warn.concealed') 'WARN' }
-
-        }   # end Microsoft 365
 
         # ================================================= EXCHANGE ON-PREMISES
-        $ExchOnPrem = @{}; $ExchRemote = @{}; $ExchAvailable = $false
-        $TabOnPrem = [System.Collections.Generic.List[object]]::new()
+        $ExchOnPrem = @{}; $ExchRemote = @{}; $ExchAvailable = $false; $TabOnPrem = @()
         if ($Src.Exch -and ($Cfg.ExchangeServer -or $Cfg.ExchangeProtocol -eq 'local')) {
             try {
-                $sessionOk = ($global:HS_ExMode -eq 'local' -or ($global:HS_ExSession -and $global:HS_ExSession.State -eq 'Opened')) -and (Get-Command Get-MailboxStatistics -ErrorAction SilentlyContinue)
-                if (-not $sessionOk) {
-                    $c = if ($ExchangeCredential) { $ExchangeCredential } else { $ADCredential }
-                    Connect-HSExchange -Cfg $Cfg -Credential $c | Out-Null
-                }
-                $mbxs = @(Get-Mailbox -ResultSize Unlimited -WarningAction SilentlyContinue)
-                Write-HSLog (T 'log.mbxOnPrem' $mbxs.Count)
-                try {
-                    foreach ($rm in @(Get-RemoteMailbox -ResultSize Unlimited -WarningAction SilentlyContinue)) { $ExchRemote["$($rm.SamAccountName)"] = "$($rm.RecipientTypeDetails)" }
-                    Write-HSLog (T 'log.remoteMbx' $ExchRemote.Count)
-                }
-                catch { Write-HSLog (T 'warn.remoteMbx' $_.Exception.Message) 'WARN' }
+                $exCred = if ($ExchangeCredential) { $ExchangeCredential } else { $ADCredential }
+                $exchange = Get-HSExchangeMailbox -Cfg $Cfg -Credential $exCred
+                $ExchOnPrem = $exchange.BySam; $ExchRemote = $exchange.RemoteBySam; $TabOnPrem = $exchange.Rows
                 $ExchAvailable = $true
-                $i = 0
-                foreach ($m in $mbxs) {
-                    $i++; if ($i % 50 -eq 0) { Write-HSLog (T 'log.statsProgress' @($i, $mbxs.Count)) }
-                    $st = $null
-                    try { $st = Get-MailboxStatistics -Identity "$($m.DistinguishedName)" -WarningAction SilentlyContinue -ErrorAction Stop }
-                    catch { Write-HSLog (T 'warn.stats' @($m.SamAccountName, $_.Exception.Message)) 'WARN' }
-                    $sizeMB = if ($st) { ConvertTo-MB $st.TotalItemSize } else { 0 }
-                    $sam = "$($m.SamAccountName)"
-                    if ($ExchOnPrem.ContainsKey($sam)) { $ExchOnPrem[$sam].SizeMB += $sizeMB; $ExchOnPrem[$sam].Count++ }
-                    else { $ExchOnPrem[$sam] = [pscustomobject]@{ SizeMB = $sizeMB; Count = 1; Type = "$($m.RecipientTypeDetails)" } }
-                    $TabOnPrem.Add([pscustomobject][ordered]@{
-                            Username      = $sam
-                            DisplayName   = "$($m.DisplayName)"
-                            Type          = "$($m.RecipientTypeDetails)"
-                            Email         = "$($m.PrimarySmtpAddress)"
-                            Database      = "$($m.Database)"
-                            Size_MB       = $sizeMB
-                            Items         = if ($st) { [double]$st.ItemCount } else { $null }
-                            Deleted_MB    = if ($st) { ConvertTo-MB $st.TotalDeletedItemSize } else { $null }
-                            LastLogon     = if ($st) { ConvertTo-LocalDate $st.LastLogonTime } else { $null }
-                            Quota         = if ($m.UseDatabaseQuotaDefaults) { T 'quota.dbDefault' } else { "$($m.ProhibitSendQuota)" }
-                            HiddenFromGAL = & $yn ("$($m.HiddenFromAddressListsEnabled)" -eq 'True')
-                        })
-                }
             }
             catch { Write-HSLog (T 'warn.exch' $_.Exception.Message) 'WARN' }
         }
@@ -1025,13 +1316,13 @@ $Core = {
         $GrpCloud = if ($Cfg.CloudOnlyGroup) { $Cfg.CloudOnlyGroup } else { T 'grp.cloud' }
 
         $newRow = {
-            param($Ad, $Eu, [string]$Group)
-            $sam = if ($Ad) { $Ad.SamAccountName } elseif ($Eu.onPremisesSamAccountName) { $Eu.onPremisesSamAccountName } else { ($Eu.userPrincipalName -split '@')[0] }
-            $upn = if ($Eu) { $Eu.userPrincipalName } else { $null }
+            param($Ad, $EntraUser, [string]$Group)
+            $sam = if ($Ad) { $Ad.SamAccountName } elseif ($EntraUser.onPremisesSamAccountName) { $EntraUser.onPremisesSamAccountName } else { ($EntraUser.userPrincipalName -split '@')[0] }
+            $upn = if ($EntraUser) { $EntraUser.userPrincipalName } else { $null }
             $notes = [System.Collections.Generic.List[string]]::new()
 
-            $origin = if ($Ad -and $Eu) { $V.Synced } elseif ($Ad) { $V.ADOnly } elseif ($Eu.userType -eq 'Guest') { $V.Guest } else { $V.Cloud }
-            $enabled = if ($Ad) { [bool]$Ad.Enabled } else { [bool]$Eu.accountEnabled }
+            $origin = if ($Ad -and $EntraUser) { $Labels.Synced } elseif ($Ad) { $Labels.ADOnly } elseif ($EntraUser.userType -eq 'Guest') { $Labels.Guest } else { $Labels.Cloud }
+            $enabled = if ($Ad) { [bool]$Ad.Enabled } else { [bool]$EntraUser.accountEnabled }
 
             $ou = ''
             if ($Ad -and $Ad.CanonicalName) {
@@ -1040,12 +1331,12 @@ $Core = {
             }
 
             # licenses
-            $lic = $V.None
-            if ($Eu -and $Eu.assignedLicenses) {
-                $names = @(@(foreach ($l in $Eu.assignedLicenses) {
-                            $p = $SkuMap["$($l.skuId)"]
-                            if ($p -and $LicenseNames.ContainsKey($p)) { $LicenseNames[$p] }
-                            elseif ($p -and -not $MappedOnly) { $p }
+            $lic = $Labels.None
+            if ($EntraUser -and $EntraUser.assignedLicenses) {
+                $names = @(@(foreach ($license in $EntraUser.assignedLicenses) {
+                            $skuPart = $SkuMap["$($license.skuId)"]
+                            if ($skuPart -and $LicenseNames.ContainsKey($skuPart)) { $LicenseNames[$skuPart] }
+                            elseif ($skuPart -and -not $MappedOnly) { $skuPart }
                         }) | Select-Object -Unique)
                 if ($names.Count) { $lic = $names -join ', ' }
             }
@@ -1055,8 +1346,8 @@ $Core = {
             $exch = if ($Ad -and $ExchOnPrem.ContainsKey($sam)) { $ExchOnPrem[$sam] } else { $null }
             $remoteType = if ($Ad -and $ExchRemote.ContainsKey($sam)) { $ExchRemote[$sam] } else { $null }
             $exoPlan = $false
-            if ($Eu -and $Eu.provisionedPlans) {
-                $exoPlan = [bool]@($Eu.provisionedPlans | Where-Object { $_.service -eq 'exchange' -and $_.capabilityStatus -eq 'Enabled' -and $_.provisioningStatus -eq 'Success' }).Count
+            if ($EntraUser -and $EntraUser.provisionedPlans) {
+                $exoPlan = [bool]@($EntraUser.provisionedPlans | Where-Object { $_.service -eq 'exchange' -and $_.capabilityStatus -eq 'Enabled' -and $_.provisioningStatus -eq 'Success' }).Count
             }
             if ($exch) {
                 $location = 'ON-PREM'; $mbxType = "$($exch.Type)"; $mbxSource = T 'src.getMailbox'
@@ -1074,36 +1365,36 @@ $Core = {
 
             # last 365 sign-in (max of interactive / non-interactive)
             $azLast = $null
-            if ($Eu -and $Eu.signInActivity) {
-                $azLast = @((ConvertTo-LocalDate $Eu.signInActivity.lastSignInDateTime), (ConvertTo-LocalDate $Eu.signInActivity.lastNonInteractiveSignInDateTime)) |
+            if ($EntraUser -and $EntraUser.signInActivity) {
+                $azLast = @((ConvertTo-LocalDate $EntraUser.signInActivity.lastSignInDateTime), (ConvertTo-LocalDate $EntraUser.signInActivity.lastNonInteractiveSignInDateTime)) |
                     Where-Object { $_ } | Sort-Object -Descending | Select-Object -First 1
             }
 
             # MFA
-            $mfa = $V.MfaNotInEntra; $mfaDef = ''; $mfaMethods = ''; $mfaPerUser = ''
-            if ($Eu) {
-                $r = $MfaReg[$Eu.id]
-                if ($r) {
-                    $mfa = if ($r.isMfaRegistered) { $V.MfaYes } else { $V.MfaNo }
-                    $mfaDef = & $defMethod $r
-                    $mfaMethods = (@($r.methods) | Where-Object { $_ } | ForEach-Object { Get-MethodName $_ } | Select-Object -Unique) -join ', '
+            $mfa = $Labels.MfaNotInEntra; $mfaDef = ''; $mfaMethods = ''; $mfaPerUser = ''
+            if ($EntraUser) {
+                $reg = $MfaReg[$EntraUser.id]
+                if ($reg) {
+                    $mfa = if ($reg.isMfaRegistered) { $Labels.MfaYes } else { $Labels.MfaNo }
+                    $mfaDef = Get-HSDefaultMethodName $reg
+                    $mfaMethods = Get-HSMethodList $reg
                 }
-                else { $mfa = $V.MfaNo }
-                if ($PerUser.ContainsKey($Eu.id)) { $mfaPerUser = "$($PerUser[$Eu.id])" }
+                else { $mfa = $Labels.MfaNo }
+                if ($PerUser.ContainsKey($EntraUser.id)) { $mfaPerUser = "$($PerUser[$EntraUser.id])" }
             }
 
-            if (-not $enabled -and $lic -ne $V.None) { $notes.Add((T 'note.licensedDisabled')) }
-            if ($enabled -and $lic -ne $V.None -and $mfa -eq $V.MfaNo) { $notes.Add((T 'note.noMfa')) }
-            if ($Src.M365 -and $Ad -and -not $Eu -and $enabled) { $notes.Add((T 'note.notSynced')) }
+            if (-not $enabled -and $lic -ne $Labels.None) { $notes.Add((T 'note.licensedDisabled')) }
+            if ($enabled -and $lic -ne $Labels.None -and $mfa -eq $Labels.MfaNo) { $notes.Add((T 'note.noMfa')) }
+            if ($Src.M365 -and $Ad -and -not $EntraUser -and $enabled) { $notes.Add((T 'note.notSynced')) }
             if ($Ad -and $Ad.PasswordNeverExpires) { $notes.Add((T 'note.pwdNeverExpires')) }
 
             [pscustomobject][ordered]@{
                 Group             = $Group
-                FirstName         = if ($Ad) { $Ad.GivenName } else { $Eu.givenName }
-                LastName          = if ($Ad) { $Ad.Surname } else { $Eu.surname }
+                FirstName         = if ($Ad) { $Ad.GivenName } else { $EntraUser.givenName }
+                LastName          = if ($Ad) { $Ad.Surname } else { $EntraUser.surname }
                 Username          = $sam
                 OU                = $ou
-                Status            = if ($enabled) { $V.Enabled } else { $V.Disabled }
+                Status            = if ($enabled) { $Labels.Enabled } else { $Labels.Disabled }
                 AD_LastLogon      = if ($Ad) { $Ad.LastLogonDate } else { $null }
                 M365_LastSignIn   = $azLast
                 Licenses          = $lic
@@ -1139,144 +1430,115 @@ $Core = {
         }
 
         $Groups = [ordered]@{}
-        foreach ($r in @($Cfg.GroupRules)) { if ($r.Group -and -not $Groups.Contains($r.Group)) { $Groups[$r.Group] = [System.Collections.Generic.List[object]]::new() } }
+        foreach ($rule in @($Cfg.GroupRules)) { if ($rule.Group -and -not $Groups.Contains($rule.Group)) { $Groups[$rule.Group] = [System.Collections.Generic.List[object]]::new() } }
         $seenEntra = @{}
         foreach ($ad in $adUsers) {
-            $eu = $null
-            if ($EntraBySam.ContainsKey($ad.SamAccountName)) { $eu = $EntraBySam[$ad.SamAccountName] }
-            elseif ($ad.UserPrincipalName -and $EntraByUpn.ContainsKey($ad.UserPrincipalName)) { $eu = $EntraByUpn[$ad.UserPrincipalName] }
-            elseif ($EntraByLocal.ContainsKey($ad.SamAccountName)) { $eu = $EntraByLocal[$ad.SamAccountName] }
-            if ($eu) { $seenEntra[$eu.id] = $true }
-            $g = & $getGroup $ad
-            if (-not $Groups.Contains($g)) { $Groups[$g] = [System.Collections.Generic.List[object]]::new() }
-            $Groups[$g].Add((& $newRow $ad $eu $g))
+            $entraUser = $null
+            if ($EntraBySam.ContainsKey($ad.SamAccountName)) { $entraUser = $EntraBySam[$ad.SamAccountName] }
+            elseif ($ad.UserPrincipalName -and $EntraByUpn.ContainsKey($ad.UserPrincipalName)) { $entraUser = $EntraByUpn[$ad.UserPrincipalName] }
+            elseif ($EntraByLocal.ContainsKey($ad.SamAccountName)) { $entraUser = $EntraByLocal[$ad.SamAccountName] }
+            if ($entraUser) { $seenEntra[$entraUser.id] = $true }
+            $groupName = & $getGroup $ad
+            if (-not $Groups.Contains($groupName)) { $Groups[$groupName] = [System.Collections.Generic.List[object]]::new() }
+            $Groups[$groupName].Add((& $newRow $ad $entraUser $groupName))
         }
-        foreach ($eu in $entra) {
-            if ($seenEntra.ContainsKey($eu.id)) { continue }
-            if ($eu.userType -eq 'Guest' -and -not $Cfg.IncludeGuests) { continue }
+        foreach ($entraUser in $entra) {
+            if ($seenEntra.ContainsKey($entraUser.id)) { continue }
+            if ($entraUser.userType -eq 'Guest' -and -not $Cfg.IncludeGuests) { continue }
             if (-not $Groups.Contains($GrpCloud)) { $Groups[$GrpCloud] = [System.Collections.Generic.List[object]]::new() }
-            $Groups[$GrpCloud].Add((& $newRow $null $eu $GrpCloud))
+            $Groups[$GrpCloud].Add((& $newRow $null $entraUser $GrpCloud))
         }
-        foreach ($k in @($Groups.Keys)) {
-            if ($Groups[$k].Count -eq 0) { $Groups.Remove($k) }
-            else { $Groups[$k] = @($Groups[$k] | Sort-Object LastName, FirstName, Username) }
+        foreach ($groupName in @($Groups.Keys)) {
+            if ($Groups[$groupName].Count -eq 0) { $Groups.Remove($groupName) }
+            else { $Groups[$groupName] = @($Groups[$groupName] | Sort-Object LastName, FirstName, Username) }
         }
         $All = @($Groups.Values | ForEach-Object { $_ })
         Write-HSLog (T 'log.rows' @($All.Count, $Groups.Count))
 
         # ================================================= OVERVIEW
-        $sumGB = { param($rows, $prop) $t = 0.0; foreach ($x in $rows) { if ($x.$prop) { $t += [double]$x.$prop } }; [math]::Round($t / 1024, 2) }
-        $isLic = { param($x) $x.Licenses -ne $V.None }
-        $M = [System.Collections.Generic.List[object]]::new()
-        $add = { param($id, $name, $f, [switch]$Section, [switch]$GB) $M.Add([pscustomobject]@{ Id = $id; N = $name; F = $f; S = [bool]$Section; G = [bool]$GB }) }
-        & $add 'secUsers' (T 'm.sec.users') $null -Section
-        & $add 'total' (T 'm.total') { param($r) @($r).Count }
-        & $add 'enabled' (T 'm.enabled') { param($r) @($r | Where-Object { $_.Status -eq $V.Enabled }).Count }
-        & $add 'disabled' (T 'm.disabled') { param($r) @($r | Where-Object { $_.Status -eq $V.Disabled }).Count }
+        $sumGB = { param($rows, $prop) $total = 0.0; foreach ($row in $rows) { if ($row.$prop) { $total += [double]$row.$prop } }; [math]::Round($total / 1024, 2) }
+        $isLic = { param($row) $row.Licenses -ne $Labels.None }
+        $Metrics = [System.Collections.Generic.List[object]]::new()
+        $addMetric = { param($id, $name, $formula, [switch]$Section, [switch]$GB) $Metrics.Add([pscustomobject]@{ Id = $id; Name = $name; Formula = $formula; IsSection = [bool]$Section; IsGB = [bool]$GB }) }
+        & $addMetric 'secUsers' (T 'm.sec.users') $null -Section
+        & $addMetric 'total' (T 'm.total') { param($rows) @($rows).Count }
+        & $addMetric 'enabled' (T 'm.enabled') { param($rows) @($rows | Where-Object { $_.Status -eq $Labels.Enabled }).Count }
+        & $addMetric 'disabled' (T 'm.disabled') { param($rows) @($rows | Where-Object { $_.Status -eq $Labels.Disabled }).Count }
         if ($Src.AD -and $Src.M365) {
-            & $add 'adOnly' (T 'm.adOnly') { param($r) @($r | Where-Object { $_.Origin -eq $V.ADOnly }).Count }
-            & $add 'cloudOnly' (T 'm.cloudOnly') { param($r) @($r | Where-Object { $_.Origin -eq $V.Cloud -or $_.Origin -eq $V.Guest }).Count }
+            & $addMetric 'adOnly' (T 'm.adOnly') { param($rows) @($rows | Where-Object { $_.Origin -eq $Labels.ADOnly }).Count }
+            & $addMetric 'cloudOnly' (T 'm.cloudOnly') { param($rows) @($rows | Where-Object { $_.Origin -eq $Labels.Cloud -or $_.Origin -eq $Labels.Guest }).Count }
         }
         if ($Src.M365 -or $Src.Exch) {
-            & $add 'secLoc' (T 'm.sec.location') $null -Section
-            if ($Src.M365) { & $add 'loc365' (T 'm.loc' '365') { param($r) @($r | Where-Object { $_.Location -eq '365' }).Count } }
-            if ($Src.Exch) { & $add 'locOnPrem' (T 'm.loc' 'ON-PREM') { param($r) @($r | Where-Object { $_.Location -eq 'ON-PREM' }).Count } }
-            & $add 'locNone' (T 'm.loc' 'NO MAILBOX') { param($r) @($r | Where-Object { $_.Location -eq 'NO MAILBOX' }).Count }
-            & $add 'secSpace' (T 'm.sec.space') $null -Section
-            if ($Src.Exch) { & $add 'spaceOnPrem' (T 'm.spaceOnPrem') { param($r) & $sumGB $r 'MailboxOnPrem_MB' } -GB }
+            & $addMetric 'secLoc' (T 'm.sec.location') $null -Section
+            if ($Src.M365) { & $addMetric 'loc365' (T 'm.loc' '365') { param($rows) @($rows | Where-Object { $_.Location -eq '365' }).Count } }
+            if ($Src.Exch) { & $addMetric 'locOnPrem' (T 'm.loc' 'ON-PREM') { param($rows) @($rows | Where-Object { $_.Location -eq 'ON-PREM' }).Count } }
+            & $addMetric 'locNone' (T 'm.loc' 'NO MAILBOX') { param($rows) @($rows | Where-Object { $_.Location -eq 'NO MAILBOX' }).Count }
+            & $addMetric 'secSpace' (T 'm.sec.space') $null -Section
+            if ($Src.Exch) { & $addMetric 'spaceOnPrem' (T 'm.spaceOnPrem') { param($rows) & $sumGB $rows 'MailboxOnPrem_MB' } -GB }
             if ($Src.M365) {
-                & $add 'space365' (T 'm.space365') { param($r) & $sumGB $r 'Mailbox365_MB' } -GB
-                & $add 'spaceOD' (T 'm.spaceOD') { param($r) & $sumGB $r 'OneDrive_MB' } -GB
+                & $addMetric 'space365' (T 'm.space365') { param($rows) & $sumGB $rows 'Mailbox365_MB' } -GB
+                & $addMetric 'spaceOD' (T 'm.spaceOD') { param($rows) & $sumGB $rows 'OneDrive_MB' } -GB
             }
             if ($Src.Exch) {
-                & $add 'avgOnPrem' (T 'm.avgOnPrem') { param($r) $x = @($r | Where-Object { $_.Location -eq 'ON-PREM' }); if ($x.Count) { [math]::Round((& $sumGB $x 'MailboxOnPrem_MB') / $x.Count, 2) } else { 0 } } -GB
-                & $add 'maxOnPrem' (T 'm.maxOnPrem') { param($r) $mx = 0.0; foreach ($x in $r) { if ($x.MailboxOnPrem_MB -gt $mx) { $mx = [double]$x.MailboxOnPrem_MB } }; [math]::Round($mx / 1024, 2) } -GB
+                & $addMetric 'avgOnPrem' (T 'm.avgOnPrem') { param($rows) $onPremRows = @($rows | Where-Object { $_.Location -eq 'ON-PREM' }); if ($onPremRows.Count) { [math]::Round((& $sumGB $onPremRows 'MailboxOnPrem_MB') / $onPremRows.Count, 2) } else { 0 } } -GB
+                & $addMetric 'maxOnPrem' (T 'm.maxOnPrem') { param($rows) $maxMB = 0.0; foreach ($row in $rows) { if ($row.MailboxOnPrem_MB -gt $maxMB) { $maxMB = [double]$row.MailboxOnPrem_MB } }; [math]::Round($maxMB / 1024, 2) } -GB
             }
         }
         if ($Src.M365) {
-        & $add 'secLic' (T 'm.sec.lic') $null -Section
-        $licNames = @($All | ForEach-Object { $_.Licenses -split ', ' } | Where-Object { $_ -and $_ -ne $V.None } | Sort-Object -Unique)
-        foreach ($ln in $licNames) {
-            & $add "lic:$ln" $ln ({ param($r) @($r | Where-Object { ($_.Licenses -split ', ') -contains $ln }).Count }.GetNewClosure())
+        & $addMetric 'secLic' (T 'm.sec.lic') $null -Section
+        $licNames = @($All | ForEach-Object { $_.Licenses -split ', ' } | Where-Object { $_ -and $_ -ne $Labels.None } | Sort-Object -Unique)
+        foreach ($licName in $licNames) {
+            & $addMetric "lic:$licName" $licName ({ param($rows) @($rows | Where-Object { ($_.Licenses -split ', ') -contains $licName }).Count }.GetNewClosure())
         }
-        & $add 'noLic' (T 'm.noLic') { param($r) @($r | Where-Object { $_.Licenses -eq $V.None }).Count }
-        & $add 'licDisabled' (T 'm.licDisabled') { param($r) @($r | Where-Object { $_.Status -eq $V.Disabled -and (& $isLic $_) }).Count }
-        & $add 'secMfa' (T 'm.sec.mfa') $null -Section
-        & $add 'mfaYes' (T 'm.mfaYes') { param($r) @($r | Where-Object { $_.MFA_Status -eq $V.MfaYes }).Count }
-        & $add 'mfaNo' (T 'm.mfaNo') { param($r) @($r | Where-Object { $_.MFA_Status -eq $V.MfaNo }).Count }
-        & $add 'mfaNotInEntra' (T 'm.mfaNotInEntra') { param($r) @($r | Where-Object { $_.MFA_Status -eq $V.MfaNotInEntra }).Count }
-        & $add 'mfaPct' (T 'm.mfaPct') { param($r) $e = @($r | Where-Object { $_.MFA_Status -ne $V.MfaNotInEntra }); if ($e.Count) { [math]::Round(100 * @($e | Where-Object { $_.MFA_Status -eq $V.MfaYes }).Count / $e.Count, 1) } else { 0 } }
-        & $add 'licNoMfa' (T 'm.licNoMfa') { param($r) @($r | Where-Object { $_.Status -eq $V.Enabled -and (& $isLic $_) -and $_.MFA_Status -eq $V.MfaNo }).Count }
-        & $add 'perUserEnforced' (T 'm.perUserEnforced') { param($r) @($r | Where-Object { $_.MFA_PerUser -eq 'enforced' }).Count }
+        & $addMetric 'noLic' (T 'm.noLic') { param($rows) @($rows | Where-Object { $_.Licenses -eq $Labels.None }).Count }
+        & $addMetric 'licDisabled' (T 'm.licDisabled') { param($rows) @($rows | Where-Object { $_.Status -eq $Labels.Disabled -and (& $isLic $_) }).Count }
+        & $addMetric 'secMfa' (T 'm.sec.mfa') $null -Section
+        & $addMetric 'mfaYes' (T 'm.mfaYes') { param($rows) @($rows | Where-Object { $_.MFA_Status -eq $Labels.MfaYes }).Count }
+        & $addMetric 'mfaNo' (T 'm.mfaNo') { param($rows) @($rows | Where-Object { $_.MFA_Status -eq $Labels.MfaNo }).Count }
+        & $addMetric 'mfaNotInEntra' (T 'm.mfaNotInEntra') { param($rows) @($rows | Where-Object { $_.MFA_Status -eq $Labels.MfaNotInEntra }).Count }
+        & $addMetric 'mfaPct' (T 'm.mfaPct') { param($rows) $inEntra = @($rows | Where-Object { $_.MFA_Status -ne $Labels.MfaNotInEntra }); if ($inEntra.Count) { [math]::Round(100 * @($inEntra | Where-Object { $_.MFA_Status -eq $Labels.MfaYes }).Count / $inEntra.Count, 1) } else { 0 } }
+        & $addMetric 'licNoMfa' (T 'm.licNoMfa') { param($rows) @($rows | Where-Object { $_.Status -eq $Labels.Enabled -and (& $isLic $_) -and $_.MFA_Status -eq $Labels.MfaNo }).Count }
+        & $addMetric 'perUserEnforced' (T 'm.perUserEnforced') { param($rows) @($rows | Where-Object { $_.MFA_PerUser -eq 'enforced' }).Count }
         }   # end Microsoft 365 metrics
-        & $add 'secInactive' (T 'm.sec.inactive') $null -Section
-        if ($Src.AD) { & $add 'inactiveAD' (T 'm.inactiveAD' $Cfg.InactiveDays) { param($r) @($r | Where-Object { $_.Status -eq $V.Enabled -and ($_.Origin -eq $V.Synced -or $_.Origin -eq $V.ADOnly) -and (-not $_.AD_LastLogon -or $_.AD_LastLogon -lt $InactiveCut) }).Count } }
-        if ($Src.M365) { & $add 'inactive365' (T 'm.inactive365' $Cfg.InactiveDays) { param($r) @($r | Where-Object { $_.Status -eq $V.Enabled -and (& $isLic $_) -and (-not $_.M365_LastSignIn -or $_.M365_LastSignIn -lt $InactiveCut) }).Count } }
-        if ($Src.AD) { & $add 'pwdOld' (T 'm.pwdOld' $Cfg.PasswordAgeDays) { param($r) @($r | Where-Object { $_.Status -eq $V.Enabled -and $_.PasswordLastSet -and $_.PasswordLastSet -lt $PwdCut }).Count } }
+        & $addMetric 'secInactive' (T 'm.sec.inactive') $null -Section
+        if ($Src.AD) { & $addMetric 'inactiveAD' (T 'm.inactiveAD' $Cfg.InactiveDays) { param($rows) @($rows | Where-Object { $_.Status -eq $Labels.Enabled -and ($_.Origin -eq $Labels.Synced -or $_.Origin -eq $Labels.ADOnly) -and (-not $_.AD_LastLogon -or $_.AD_LastLogon -lt $InactiveCut) }).Count } }
+        if ($Src.M365) { & $addMetric 'inactive365' (T 'm.inactive365' $Cfg.InactiveDays) { param($rows) @($rows | Where-Object { $_.Status -eq $Labels.Enabled -and (& $isLic $_) -and (-not $_.M365_LastSignIn -or $_.M365_LastSignIn -lt $InactiveCut) }).Count } }
+        if ($Src.AD) { & $addMetric 'pwdOld' (T 'm.pwdOld' $Cfg.PasswordAgeDays) { param($rows) @($rows | Where-Object { $_.Status -eq $Labels.Enabled -and $_.PasswordLastSet -and $_.PasswordLastSet -lt $PwdCut }).Count } }
 
         $colMetric = T 'col.metric'; $colTotal = T 'col.total'
         $Totals = @{}
-        $Overview = @(foreach ($m in $M) {
-                $o = [ordered]@{ $colMetric = $m.N }
-                foreach ($g in $Groups.Keys) { $o[$g] = if ($m.S) { $null } else { & $m.F $Groups[$g] } }
-                $o[$colTotal] = if ($m.S) { $null } else { & $m.F $All }
-                if (-not $m.S) { $Totals[$m.Id] = $o[$colTotal] }
-                [pscustomobject]$o
+        $Overview = @(foreach ($metric in $Metrics) {
+                $line = [ordered]@{ $colMetric = $metric.Name }
+                foreach ($groupName in $Groups.Keys) { $line[$groupName] = if ($metric.IsSection) { $null } else { & $metric.Formula $Groups[$groupName] } }
+                $line[$colTotal] = if ($metric.IsSection) { $null } else { & $metric.Formula $All }
+                if (-not $metric.IsSection) { $Totals[$metric.Id] = $line[$colTotal] }
+                [pscustomobject]$line
             })
 
         # ================================================= ATTENTION
         $Attn = [System.Collections.Generic.List[object]]::new()
-        $addA = {
-            param($cat, $row, $det, [double]$key = 0)
+        $addAttention = {
+            param($category, $row, $details, [double]$sortKey = 0)
             $Attn.Add([pscustomobject][ordered]@{
-                    Category = $cat; Group = $row.Group; Username = $row.Username
-                    Name = ("$($row.FirstName) $($row.LastName)").Trim(); Licenses = $row.Licenses; Details = $det; _k = $key
+                    Category = $category; Group = $row.Group; Username = $row.Username
+                    Name = ("$($row.FirstName) $($row.LastName)").Trim(); Licenses = $row.Licenses; Details = $details; _k = $sortKey
                 })
         }
-        $lastOrNever = { param($d) if ($d) { T 'att.last' $d } else { T 'att.never' } }
-        foreach ($r in $All) {
-            $lic = & $isLic $r
-            if ($r.Location -eq 'ON-PREM') { & $addA (T 'att.c1') $r ('{0:N2} GB' -f ($r.MailboxOnPrem_MB / 1024)) (-$r.MailboxOnPrem_MB) }
-            if ($r.Status -eq $V.Enabled -and $lic -and $r.MFA_Status -eq $V.MfaNo) { & $addA (T 'att.c2') $r $r.MFA_PerUser }
-            if ($r.Status -eq $V.Disabled -and $lic) { & $addA (T 'att.c3') $r '' }
-            if ($r.Status -eq $V.Enabled -and $lic -and (-not $r.M365_LastSignIn -or $r.M365_LastSignIn -lt $InactiveCut)) { & $addA (T 'att.c4' $Cfg.InactiveDays) $r (& $lastOrNever $r.M365_LastSignIn) }
-            if ($r.Status -eq $V.Enabled -and ($r.Origin -eq $V.Synced -or $r.Origin -eq $V.ADOnly) -and (-not $r.AD_LastLogon -or $r.AD_LastLogon -lt $InactiveCut)) { & $addA (T 'att.c5' $Cfg.InactiveDays) $r (& $lastOrNever $r.AD_LastLogon) }
-            if ($Src.M365 -and $Src.AD -and $r.Origin -eq $V.ADOnly -and $r.Status -eq $V.Enabled) { & $addA (T 'att.c6') $r $r.OU }
+        $lastOrNever = { param($date) if ($date) { T 'att.last' $date } else { T 'att.never' } }
+        foreach ($userRow in $All) {
+            $isLicensed = & $isLic $userRow
+            if ($userRow.Location -eq 'ON-PREM') { & $addAttention (T 'att.c1') $userRow ('{0:N2} GB' -f ($userRow.MailboxOnPrem_MB / 1024)) (-$userRow.MailboxOnPrem_MB) }
+            if ($userRow.Status -eq $Labels.Enabled -and $isLicensed -and $userRow.MFA_Status -eq $Labels.MfaNo) { & $addAttention (T 'att.c2') $userRow $userRow.MFA_PerUser }
+            if ($userRow.Status -eq $Labels.Disabled -and $isLicensed) { & $addAttention (T 'att.c3') $userRow '' }
+            if ($userRow.Status -eq $Labels.Enabled -and $isLicensed -and (-not $userRow.M365_LastSignIn -or $userRow.M365_LastSignIn -lt $InactiveCut)) { & $addAttention (T 'att.c4' $Cfg.InactiveDays) $userRow (& $lastOrNever $userRow.M365_LastSignIn) }
+            if ($userRow.Status -eq $Labels.Enabled -and ($userRow.Origin -eq $Labels.Synced -or $userRow.Origin -eq $Labels.ADOnly) -and (-not $userRow.AD_LastLogon -or $userRow.AD_LastLogon -lt $InactiveCut)) { & $addAttention (T 'att.c5' $Cfg.InactiveDays) $userRow (& $lastOrNever $userRow.AD_LastLogon) }
+            if ($Src.M365 -and $Src.AD -and $userRow.Origin -eq $Labels.ADOnly -and $userRow.Status -eq $Labels.Enabled) { & $addAttention (T 'att.c6') $userRow $userRow.OU }
         }
         $Attn = @($Attn | Sort-Object Category, _k, Username | Select-Object * -ExcludeProperty _k)
 
-        # ================================================= MFA DETAILS
-        $TabMfa = @(foreach ($u in ($entra | Where-Object { $_.userType -eq 'Member' -or $Cfg.IncludeGuests } | Sort-Object userPrincipalName)) {
-                $r = $MfaReg[$u.id]
-                [pscustomobject][ordered]@{
-                    UPN             = $u.userPrincipalName
-                    DisplayName     = $u.displayName
-                    Enabled         = & $yn $u.accountEnabled
-                    SyncedFromAD    = & $yn $u.onPremisesSyncEnabled
-                    MFA_Registered  = & $yn ($r -and $r.isMfaRegistered)
-                    MFA_Capable     = & $yn ($r -and $r.isMfaCapable)
-                    DefaultMethod   = if ($r) { & $defMethod $r } else { '' }
-                    Methods         = if ($r) { (@($r.methods) | Where-Object { $_ } | ForEach-Object { Get-MethodName $_ } | Select-Object -Unique) -join ', ' } else { '' }
-                    PerUserState    = if ($PerUser.ContainsKey($u.id)) { "$($PerUser[$u.id])" } else { '' }
-                    SSPR_Registered = & $yn ($r -and $r.isSsprRegistered)
-                    Admin           = & $yn ($r -and $r.isAdmin)
-                }
-            })
-
-        # ================================================= TENANT LICENSES
-        $TabLic = @(foreach ($s in ($skus | Sort-Object skuPartNumber)) {
-                $tot = [int]$s.prepaidUnits.enabled; $used = [int]$s.consumedUnits
-                [pscustomobject][ordered]@{
-                    SKU       = $s.skuPartNumber
-                    Name      = if ($LicenseNames.ContainsKey($s.skuPartNumber)) { $LicenseNames[$s.skuPartNumber] } else { '' }
-                    Purchased = $tot
-                    Assigned  = $used
-                    Available = $tot - $used
-                    Suspended = [int]$s.prepaidUnits.suspended
-                    Warning   = [int]$s.prepaidUnits.warning
-                    Status    = $s.capabilityStatus
-                }
-            })
+        # ================================================= MFA DETAILS / TENANT LICENSES
+        $TabMfa = ConvertTo-HSMfaRow -Cfg $Cfg -EntraUsers $entra -Mfa @{ Registration = $MfaReg; PerUser = $PerUser }
+        $TabLic = ConvertTo-HSLicenseRow -Skus $skus -LicenseNames $LicenseNames
 
         # ================================================= TABLES (localized names)
         # columns that make no sense for the selected infrastructure
@@ -1290,7 +1552,7 @@ $Core = {
         $Tables = [ordered]@{}
         $Tables[(T 'tab.overview')] = $Overview
         $Tables[(T 'tab.users')] = & $strip $All
-        foreach ($g in $Groups.Keys) { $tn = if ($Tables.Contains($g)) { "OU_$g" } else { $g }; $Tables[$tn] = & $strip $Groups[$g] }
+        foreach ($groupName in $Groups.Keys) { $tabName = if ($Tables.Contains($groupName)) { "OU_$groupName" } else { $groupName }; $Tables[$tabName] = & $strip $Groups[$groupName] }
         if ($TabOnPrem.Count) { $Tables[(T 'tab.mbxOnPrem')] = @($TabOnPrem | Sort-Object Size_MB -Descending) }
         if ($TabMbx365.Count) { $Tables[(T 'tab.mbx365')] = @($TabMbx365 | Sort-Object Size_MB -Descending) }
         if ($TabOD.Count) { $Tables[(T 'tab.onedrive')] = @($TabOD | Sort-Object Size_MB -Descending) }
@@ -1308,38 +1570,77 @@ $Core = {
             Generated    = $Now
             Tables       = $Tables
             OverviewName = (T 'tab.overview')
-            MetricFlags  = @($M | ForEach-Object { [pscustomobject]@{ S = $_.S; G = $_.G } })
+            MetricFlags  = @($Metrics | ForEach-Object { [pscustomobject]@{ IsSection = $_.IsSection; IsGB = $_.IsGB } })
             Totals       = $Totals
-            Warnings     = @($global:HS_Warnings | Select-Object -Unique)
+            Warnings     = @($script:HS_Warnings | Select-Object -Unique)
             Sources      = (@($(if ($Src.AD) { "AD $($Cfg.DomainFqdn)" }), $(if ($Src.Exch) { "Exchange $($Cfg.ExchangeServer)" }), $(if ($Src.M365) { "Microsoft 365 $((Get-MgContext).TenantId)" })) | Where-Object { $_ }) -join ' | '
         }
     }
 
+    function Get-HSDataset {
+        <#
+        .SYNOPSIS
+            Collects one dataset on its own, without the rest of the report (what -Only asks for).
+            Returns the rows of that tab. The Microsoft 365 datasets need a Graph connection
+            (Connect-HS365); MailboxOnPrem connects to Exchange with the current Windows account.
+        #>
+        param($Cfg, [ValidateSet('MFA', 'Licenses', 'Mailbox365', 'OneDrive', 'MailboxOnPrem')][string]$Name, [pscredential]$ExchangeCredential)
+        $ErrorActionPreference = 'Stop'
+        $script:HS_Warnings = [System.Collections.Generic.List[string]]::new()
+        if ($Name -ne 'MailboxOnPrem' -and -not (Get-MgContext)) { throw (T 'err.not365') }
+        switch ($Name) {
+            'MFA' {
+                $entra = Get-HSEntraUser -NoSignIn
+                $mfaData = Get-HSMfaRegistration -Cfg $Cfg -EntraUsers $entra
+                ConvertTo-HSMfaRow -Cfg $Cfg -EntraUsers $entra -Mfa $mfaData
+            }
+            'Licenses' { ConvertTo-HSLicenseRow -Skus (Get-HSSubscribedSku) -LicenseNames (Get-HSLicenseNameMap $Cfg) }
+            'Mailbox365' {
+                $usage = Get-HSMailbox365Usage
+                if ($usage.Concealed) { Write-HSLog (T 'warn.concealed') 'WARN' }
+                $usage.Rows | Sort-Object Size_MB -Descending
+            }
+            'OneDrive' {
+                $usage = Get-HSOneDriveUsage
+                if ($usage.Concealed) { Write-HSLog (T 'warn.concealed') 'WARN' }
+                $usage.Rows | Sort-Object Size_MB -Descending
+            }
+            'MailboxOnPrem' {
+                if (-not $Cfg.ExchangeServer -and $Cfg.ExchangeProtocol -ne 'local') { throw (T 'msg.exchNoServer') }
+                (Get-HSExchangeMailbox -Cfg $Cfg -Credential $ExchangeCredential).Rows | Sort-Object Size_MB -Descending
+            }
+        }
+    }
+
     function Update-HSHistory {
+        <#
+        .SYNOPSIS
+            Appends this run's totals to history.csv in the output folder and reloads the HISTORY table.
+        #>
         param($Data, $Cfg)
-        $T2 = $Data.Totals
+        $totals = $Data.Totals
         $file = Join-Path (Get-HSOutputFolder $Cfg) 'history.csv'
         [pscustomobject][ordered]@{
             Date               = $Data.Generated.ToString('yyyy-MM-dd HH:mm')
-            Users              = $T2['total']
-            Enabled            = $T2['enabled']
-            On365              = $T2['loc365']
-            OnPrem             = $T2['locOnPrem']
-            OnPremSpace_GB     = $T2['spaceOnPrem']
-            Space365_GB        = $T2['space365']
-            OneDrive_GB        = $T2['spaceOD']
-            MFA_Percent        = $T2['mfaPct']
-            LicensedWithoutMFA = $T2['licNoMfa']
+            Users              = $totals['total']
+            Enabled            = $totals['enabled']
+            On365              = $totals['loc365']
+            OnPrem             = $totals['locOnPrem']
+            OnPremSpace_GB     = $totals['spaceOnPrem']
+            Space365_GB        = $totals['space365']
+            OneDrive_GB        = $totals['spaceOD']
+            MFA_Percent        = $totals['mfaPct']
+            LicensedWithoutMFA = $totals['licNoMfa']
         } | Export-Csv -Path $file -Append -NoTypeInformation -Encoding UTF8 -Delimiter ';'
         $Data.Tables[(T 'tab.history')] = @(Import-Csv -Path $file -Delimiter ';' -Encoding UTF8)
     }
 
     # --------------------------------------------------------------------------- export
     function Get-ColLetter {
-        param([int]$n)
-        $s = ''
-        while ($n -gt 0) { $m = ($n - 1) % 26; $s = [string][char](65 + $m) + $s; $n = [int][math]::Floor(($n - $m) / 26) }
-        $s
+        param([int]$Number)
+        $letters = ''
+        while ($Number -gt 0) { $remainder = ($Number - 1) % 26; $letters = [string][char](65 + $remainder) + $letters; $Number = [int][math]::Floor(($Number - $remainder) / 26) }
+        $letters
     }
 
     function ConvertTo-HSLocalized {
@@ -1347,22 +1648,26 @@ $Core = {
         param([object[]]$Rows)
         if (-not $Rows -or -not $Rows.Count) { return @() }
         $props = @($Rows[0].PSObject.Properties.Name)
-        $sel = foreach ($p in $props) { $h = Get-HSHeader $p; if ($h -eq $p) { $p } else { @{ Name = $h; Expression = [scriptblock]::Create("`$_.'$p'") } } }
+        $sel = foreach ($prop in $props) { $header = Get-HSHeader $prop; if ($header -eq $prop) { $prop } else { @{ Name = $header; Expression = [scriptblock]::Create("`$_.'$prop'") } } }
         @($Rows | Select-Object -Property $sel)
     }
 
     function Get-HSSheetName {
         param([string]$Name)
-        $n = $Name -replace '[\[\]\*\?/\\:]', '_'
-        if ($n.Length -gt 31) { $n = $n.Substring(0, 31) }
-        $n
+        $sheetName = $Name -replace '[\[\]\*\?/\\:]', '_'
+        if ($sheetName.Length -gt 31) { $sheetName = $sheetName.Substring(0, 31) }
+        $sheetName
     }
 
     function Export-HSExcel {
+        <#
+        .SYNOPSIS
+            Writes every table in Data to a formatted .xlsx at Path (one sheet per table). Returns Path.
+        #>
         param($Data, [string]$Path)
         Import-Module ImportExcel -ErrorAction Stop
         if (Test-Path $Path) { Remove-Item $Path -Force }
-        $ct = @(
+        $condFormats = @(
             New-ConditionalText -Text (T 'val.mfaNo') -ConditionalTextColor DarkRed -BackgroundColor MistyRose
             New-ConditionalText -Text 'ON-PREM' -ConditionalTextColor DarkGoldenrod -BackgroundColor LightYellow
             New-ConditionalText -Text 'NO MAILBOX' -ConditionalTextColor Gray
@@ -1373,40 +1678,40 @@ $Core = {
             $rows = if ($name -eq $Data.OverviewName) { @($Data.Tables[$name]) } else { @(ConvertTo-HSLocalized @($Data.Tables[$name])) }
             if (-not $rows.Count) { continue }
             $i++
-            $sn = Get-HSSheetName $name
-            $sheets[$sn] = $rows
-            $p = @{ Path = $Path; WorksheetName = $sn; TableName = "T$i"; TableStyle = 'Medium2'; AutoSize = $true; BoldTopRow = $true }
-            if ($name -eq $Data.OverviewName) { $p.FreezeTopRowFirstColumn = $true } else { $p.FreezeTopRow = $true; $p.ConditionalText = $ct }
-            $rows | Export-Excel @p
-            Write-HSLog (T 'log.excelSheet' @($sn, $rows.Count))
+            $sheetName = Get-HSSheetName $name
+            $sheets[$sheetName] = $rows
+            $excelParams = @{ Path = $Path; WorksheetName = $sheetName; TableName = "T$i"; TableStyle = 'Medium2'; AutoSize = $true; BoldTopRow = $true }
+            if ($name -eq $Data.OverviewName) { $excelParams.FreezeTopRowFirstColumn = $true } else { $excelParams.FreezeTopRow = $true; $excelParams.ConditionalText = $condFormats }
+            $rows | Export-Excel @excelParams
+            Write-HSLog (T 'log.excelSheet' @($sheetName, $rows.Count))
         }
 
         $pkg = Open-ExcelPackage -Path $Path
         try {
-            foreach ($sn in $sheets.Keys) {
-                $ws = $pkg.Workbook.Worksheets[$sn]; if (-not $ws) { continue }
-                $c = 0
-                foreach ($prop in $sheets[$sn][0].PSObject.Properties) {
-                    $c++
-                    $v = @($sheets[$sn] | ForEach-Object { $_.($prop.Name) } | Where-Object { $null -ne $_ } | Select-Object -First 1)
-                    if ($v.Count -and $v[0] -is [datetime]) { $ws.Column($c).Style.Numberformat.Format = 'yyyy-mm-dd hh:mm' }
-                    elseif ($v.Count -and $v[0] -is [double] -and $prop.Name -match '_MB$|_GB$') { $ws.Column($c).Style.Numberformat.Format = '#,##0.00' }
+            foreach ($sheetName in $sheets.Keys) {
+                $sheet = $pkg.Workbook.Worksheets[$sheetName]; if (-not $sheet) { continue }
+                $colIndex = 0
+                foreach ($prop in $sheets[$sheetName][0].PSObject.Properties) {
+                    $colIndex++
+                    $sample = @($sheets[$sheetName] | ForEach-Object { $_.($prop.Name) } | Where-Object { $null -ne $_ } | Select-Object -First 1)
+                    if ($sample.Count -and $sample[0] -is [datetime]) { $sheet.Column($colIndex).Style.Numberformat.Format = 'yyyy-mm-dd hh:mm' }
+                    elseif ($sample.Count -and $sample[0] -is [double] -and $prop.Name -match '_MB$|_GB$') { $sheet.Column($colIndex).Style.Numberformat.Format = '#,##0.00' }
                 }
             }
-            $ws = $pkg.Workbook.Worksheets[(Get-HSSheetName $Data.OverviewName)]
-            if ($ws) {
+            $sheet = if ($Data.OverviewName) { $pkg.Workbook.Worksheets[(Get-HSSheetName $Data.OverviewName)] }
+            if ($sheet) {
                 $nCols = @($Data.Tables[$Data.OverviewName])[0].PSObject.Properties.Name.Count
                 $last = Get-ColLetter $nCols
-                for ($r = 0; $r -lt $Data.MetricFlags.Count; $r++) {
-                    $row = $r + 2; $f = $Data.MetricFlags[$r]
-                    if ($f.S) { Set-ExcelRange -Worksheet $ws -Range "A$($row):$last$($row)" -Bold -BackgroundColor ([System.Drawing.Color]::LightSteelBlue) }
-                    elseif ($f.G) { Set-ExcelRange -Worksheet $ws -Range "B$($row):$last$($row)" -NumberFormat '#,##0.00' }
+                for ($metricIdx = 0; $metricIdx -lt $Data.MetricFlags.Count; $metricIdx++) {
+                    $excelRow = $metricIdx + 2; $flags = $Data.MetricFlags[$metricIdx]
+                    if ($flags.IsSection) { Set-ExcelRange -Worksheet $sheet -Range "A$($excelRow):$last$($excelRow)" -Bold -BackgroundColor ([System.Drawing.Color]::LightSteelBlue) }
+                    elseif ($flags.IsGB) { Set-ExcelRange -Worksheet $sheet -Range "B$($excelRow):$last$($excelRow)" -NumberFormat '#,##0.00' }
                 }
-                Set-ExcelRange -Worksheet $ws -Range "$($last)2:$last$($Data.MetricFlags.Count + 1)" -Bold
-                $n = $Data.MetricFlags.Count + 3
-                $ws.Cells["A$n"].Value = (T 'xl.generated' @($Data.Generated.ToString('yyyy-MM-dd HH:mm'), $Data.Sources)); $n++
-                $ws.Cells["A$n"].Value = (T 'xl.legend'); $n++
-                foreach ($w in $Data.Warnings) { $ws.Cells["A$n"].Value = (T 'xl.warning' $w); $ws.Cells["A$n"].Style.Font.Color.SetColor([System.Drawing.Color]::DarkRed); $n++ }
+                Set-ExcelRange -Worksheet $sheet -Range "$($last)2:$last$($Data.MetricFlags.Count + 1)" -Bold
+                $noteRow = $Data.MetricFlags.Count + 3
+                $sheet.Cells["A$noteRow"].Value = (T 'xl.generated' @($Data.Generated.ToString('yyyy-MM-dd HH:mm'), $Data.Sources)); $noteRow++
+                $sheet.Cells["A$noteRow"].Value = (T 'xl.legend'); $noteRow++
+                foreach ($warning in $Data.Warnings) { $sheet.Cells["A$noteRow"].Value = (T 'xl.warning' $warning); $sheet.Cells["A$noteRow"].Style.Font.Color.SetColor([System.Drawing.Color]::DarkRed); $noteRow++ }
             }
         }
         finally { Close-ExcelPackage $pkg }
@@ -1415,6 +1720,10 @@ $Core = {
     }
 
     function Export-HSCsv {
+        <#
+        .SYNOPSIS
+            Writes every table in Data as a semicolon-separated CSV file in Folder. Returns Folder.
+        #>
         param($Data, [string]$Folder)
         New-Item -ItemType Directory -Path $Folder -Force | Out-Null
         foreach ($name in $Data.Tables.Keys) {
@@ -1431,23 +1740,23 @@ $Core = {
         $dt = New-Object System.Data.DataTable
         if (-not $Rows -or $Rows.Count -eq 0) { return , $dt }
         $props = @($Rows[0].PSObject.Properties.Name)
-        foreach ($p in $props) {
+        foreach ($prop in $props) {
             $type = [string]
-            $vals = @($Rows | ForEach-Object { $_.$p } | Where-Object { $null -ne $_ -and "$_" -ne '' })
-            if ($vals.Count) {
-                if (-not @($vals | Where-Object { $_ -isnot [datetime] }).Count) { $type = [datetime] }
-                elseif (-not @($vals | Where-Object { -not ($_ -is [int] -or $_ -is [long] -or $_ -is [double] -or $_ -is [decimal]) }).Count) { $type = [double] }
+            $values = @($Rows | ForEach-Object { $_.$prop } | Where-Object { $null -ne $_ -and "$_" -ne '' })
+            if ($values.Count) {
+                if (-not @($values | Where-Object { $_ -isnot [datetime] }).Count) { $type = [datetime] }
+                elseif (-not @($values | Where-Object { -not ($_ -is [int] -or $_ -is [long] -or $_ -is [double] -or $_ -is [decimal]) }).Count) { $type = [double] }
             }
-            $hdr = if ($NoLocalize) { $p } else { Get-HSHeader $p }
+            $hdr = if ($NoLocalize) { $prop } else { Get-HSHeader $prop }
             [void]$dt.Columns.Add($hdr, $type)
         }
-        foreach ($r in $Rows) {
+        foreach ($item in $Rows) {
             $row = $dt.NewRow()
             for ($i = 0; $i -lt $props.Count; $i++) {
-                $v = $r.($props[$i]); $col = $dt.Columns[$i]
-                if ($null -eq $v -or ("$v" -eq '' -and $col.DataType -ne [string])) { $row[$i] = [DBNull]::Value }
-                elseif ($col.DataType -eq [string]) { $row[$i] = "$v" }
-                else { $row[$i] = $v }
+                $value = $item.($props[$i]); $col = $dt.Columns[$i]
+                if ($null -eq $value -or ("$value" -eq '' -and $col.DataType -ne [string])) { $row[$i] = [DBNull]::Value }
+                elseif ($col.DataType -eq [string]) { $row[$i] = "$value" }
+                else { $row[$i] = $value }
             }
             $dt.Rows.Add($row)
         }
@@ -1456,38 +1765,75 @@ $Core = {
 }
 
 # =====================================================================================
-#  HEADLESS MODE (scheduled task)
+#  HEADLESS MODE (-Auto, -Only, -PassThru)
 # =====================================================================================
+if ($Only -or $PassThru) { $Auto = $true }
 if ($Auto) {
     . $Core
     $ErrorActionPreference = 'Stop'
-    $global:HS_AppDir = $AppDir
+    $script:HS_AppDir = $AppDir
     $cfg = Read-HSConfig $ConfigPath
-    $global:HS_Lang = $cfg.Language
+    if ($Mode) { $cfg.Mode = $Mode }          # command-line override, not saved to config.json
+    $script:HS_Lang = if ($PassThru) { 'en' } else { $cfg.Language }   # objects: predictable English values
     $out = Get-HSOutputFolder $cfg
     $logDir = Join-Path $out 'logs'
     New-Item -ItemType Directory -Path $logDir -Force | Out-Null
     $stamp = Get-Date -Format 'yyyy-MM-dd_HHmm'
-    $global:HS_LogFile = Join-Path $logDir "HybridScope_$stamp.log"
+    $script:HS_LogFile = Join-Path $logDir "HybridScope_$stamp.log"
     $exit = 0
+
+    # Reuse a Microsoft Graph connection the caller already opened, and leave it open afterwards
+    $graphWasConnected = $false
+    try { $graphWasConnected = [bool](Get-MgContext -ErrorAction Stop) } catch { }
+
     try {
-        if ((Get-HSSources $cfg.Mode).M365) { Connect-HS365 -Cfg $cfg -Unattended:($cfg.AuthMode -eq 'Certificate') | Out-Null }
-        $data = Get-HSData -Cfg $cfg
-        Update-HSHistory -Data $data -Cfg $cfg
-        $xl = Join-Path $out "HybridScope_$stamp.xlsx"
-        Export-HSExcel -Data $data -Path $xl | Out-Null
-        try { Copy-Item $xl (Join-Path $out 'HybridScope_LATEST.xlsx') -Force }
-        catch { Write-HSLog (T 'warn.latestLocked') 'WARN' }
+        $needGraph = if ($Only) { $Only -ne 'MailboxOnPrem' } else { (Get-HSSources $cfg.Mode).M365 }
+        if ($needGraph -and -not $graphWasConnected) { Connect-HS365 -Cfg $cfg -Unattended:($cfg.AuthMode -eq 'Certificate') | Out-Null }
+
+        if ($Only) {
+            $rows = @(Get-HSDataset -Cfg $cfg -Name $Only)
+            if ($PassThru) { $rows }
+            else {
+                $tabKeys = @{ MFA = 'tab.mfa'; Licenses = 'tab.licenses'; Mailbox365 = 'tab.mbx365'; OneDrive = 'tab.onedrive'; MailboxOnPrem = 'tab.mbxOnPrem' }
+                $data = [pscustomobject]@{
+                    Generated    = Get-Date
+                    Tables       = [ordered]@{ (T $tabKeys[$Only]) = $rows }
+                    OverviewName = ''
+                    MetricFlags  = @()
+                    Totals       = @{}
+                    Warnings     = @($script:HS_Warnings | Select-Object -Unique)
+                    Sources      = ''
+                }
+                if ($rows.Count) { Export-HSExcel -Data $data -Path (Join-Path $out "HybridScope_$($Only)_$stamp.xlsx") | Out-Null }
+                else { Write-HSLog (T 'warn.noRows' $Only) 'WARN' }
+            }
+        }
+        else {
+            $data = Get-HSData -Cfg $cfg
+            if ($PassThru) { $data.Tables[(T 'tab.users')] }
+            else {
+                Update-HSHistory -Data $data -Cfg $cfg
+                $xl = Join-Path $out "HybridScope_$stamp.xlsx"
+                Export-HSExcel -Data $data -Path $xl | Out-Null
+                try { Copy-Item $xl (Join-Path $out 'HybridScope_LATEST.xlsx') -Force }
+                catch { Write-HSLog (T 'warn.latestLocked') 'WARN' }
+            }
+        }
+
         if ([int]$cfg.RetentionDays -gt 0) {
-            $lim = (Get-Date).AddDays( - [int]$cfg.RetentionDays)
-            Get-ChildItem $out -Filter 'HybridScope_20*.xlsx' | Where-Object LastWriteTime -lt $lim | Remove-Item -Force
-            Get-ChildItem $logDir -Filter '*.log' | Where-Object LastWriteTime -lt $lim | Remove-Item -Force
+            $cutoff = (Get-Date).AddDays( - [int]$cfg.RetentionDays)
+            Get-ChildItem $out -Filter 'HybridScope_*.xlsx' | Where-Object { $_.Name -ne 'HybridScope_LATEST.xlsx' -and $_.LastWriteTime -lt $cutoff } | Remove-Item -Force
+            Get-ChildItem $logDir -Filter '*.log' | Where-Object LastWriteTime -lt $cutoff | Remove-Item -Force
         }
     }
-    catch { Write-HSLog (T 'err.generic' "$($_.Exception.Message) $($_.InvocationInfo.PositionMessage)") 'ERROR'; $exit = 1 }
+    catch {
+        Write-HSLog (T 'err.generic' "$($_.Exception.Message) $($_.InvocationInfo.PositionMessage)") 'ERROR'
+        if ($PassThru) { Write-Error -Message $_.Exception.Message -ErrorAction Continue }
+        $exit = 1
+    }
     finally {
-        try { Disconnect-MgGraph -ErrorAction SilentlyContinue | Out-Null } catch { }
-        if ($global:HS_ExSession) { Remove-PSSession $global:HS_ExSession -ErrorAction SilentlyContinue }
+        if (-not $graphWasConnected) { try { Disconnect-MgGraph -ErrorAction SilentlyContinue | Out-Null } catch { } }
+        if ($script:HS_ExSession) { Remove-PSSession $script:HS_ExSession -ErrorAction SilentlyContinue }
     }
     exit $exit
 }
@@ -1497,9 +1843,9 @@ if ($Auto) {
 # =====================================================================================
 Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase, System.Windows.Forms, System.Drawing
 . $Core
-$global:HS_AppDir = $AppDir
+$script:HS_AppDir = $AppDir
 $cfg = Read-HSConfig $ConfigPath
-$global:HS_Lang = $cfg.Language
+$script:HS_Lang = $cfg.Language
 
 $xamlText = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -1693,14 +2039,14 @@ $xamlText = @'
 
 # localize XAML placeholders {{key}}
 $xamlText = [regex]::Replace($xamlText, '\{\{([\w\.]+)\}\}', [System.Text.RegularExpressions.MatchEvaluator] {
-        param($m) [System.Security.SecurityElement]::Escape((T $m.Groups[1].Value))
+        param($match) [System.Security.SecurityElement]::Escape((T $match.Groups[1].Value))
     })
 [xml]$xaml = $xamlText
 $Window = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xaml))
 $ui = @{}
-foreach ($n in $xaml.SelectNodes("//*[@*[local-name()='Name']]")) {
-    $nm = $n.GetAttribute('Name', 'http://schemas.microsoft.com/winfx/2006/xaml')
-    if ($nm) { $ui[$nm] = $Window.FindName($nm) }
+foreach ($node in $xaml.SelectNodes("//*[@*[local-name()='Name']]")) {
+    $nodeName = $node.GetAttribute('Name', 'http://schemas.microsoft.com/winfx/2006/xaml')
+    if ($nodeName) { $ui[$nodeName] = $Window.FindName($nodeName) }
 }
 $Window.Title = "HybridScope $HS_Version"
 $Brush = New-Object System.Windows.Media.BrushConverter
@@ -1715,42 +2061,42 @@ function Set-Led($led, [string]$state) {
 $script:StepState = @{ m365 = 'todo'; exch = 'todo'; ad = 'todo'; load = 'todo' }
 $script:StepUi = @{}
 function New-StepChip([string]$Key, [int]$Num, [string]$Label) {
-    $b = New-Object System.Windows.Controls.Border
-    $b.CornerRadius = New-Object System.Windows.CornerRadius 15
-    $b.Padding = New-Object System.Windows.Thickness 6, 4, 14, 4
-    $b.BorderThickness = New-Object System.Windows.Thickness 1
-    $sp = New-Object System.Windows.Controls.StackPanel
-    $sp.Orientation = 'Horizontal'
+    $chip = New-Object System.Windows.Controls.Border
+    $chip.CornerRadius = New-Object System.Windows.CornerRadius 15
+    $chip.Padding = New-Object System.Windows.Thickness 6, 4, 14, 4
+    $chip.BorderThickness = New-Object System.Windows.Thickness 1
+    $content = New-Object System.Windows.Controls.StackPanel
+    $content.Orientation = 'Horizontal'
     $circle = New-Object System.Windows.Controls.Border
     $circle.Width = 22; $circle.Height = 22
     $circle.CornerRadius = New-Object System.Windows.CornerRadius 11
     $circle.Margin = New-Object System.Windows.Thickness 0, 0, 8, 0
-    $g = New-Object System.Windows.Controls.TextBlock
-    $g.HorizontalAlignment = 'Center'; $g.VerticalAlignment = 'Center'; $g.FontWeight = 'Bold'; $g.FontSize = 12
-    $g.Foreground = $Brush.ConvertFromString('#FFFFFF')
-    $circle.Child = $g
-    $t = New-Object System.Windows.Controls.TextBlock
-    $t.Text = $Label; $t.VerticalAlignment = 'Center'; $t.FontWeight = 'SemiBold'
-    [void]$sp.Children.Add($circle); [void]$sp.Children.Add($t)
-    $b.Child = $sp
-    $script:StepUi[$Key] = @{ Border = $b; Circle = $circle; Glyph = $g; Text = $t; Num = $Num }
-    $b
+    $glyph = New-Object System.Windows.Controls.TextBlock
+    $glyph.HorizontalAlignment = 'Center'; $glyph.VerticalAlignment = 'Center'; $glyph.FontWeight = 'Bold'; $glyph.FontSize = 12
+    $glyph.Foreground = $Brush.ConvertFromString('#FFFFFF')
+    $circle.Child = $glyph
+    $caption = New-Object System.Windows.Controls.TextBlock
+    $caption.Text = $Label; $caption.VerticalAlignment = 'Center'; $caption.FontWeight = 'SemiBold'
+    [void]$content.Children.Add($circle); [void]$content.Children.Add($caption)
+    $chip.Child = $content
+    $script:StepUi[$Key] = @{ Border = $chip; Circle = $circle; Glyph = $glyph; Text = $caption; Num = $Num }
+    $chip
 }
 function Set-Step([string]$Key, [string]$State) {
     $script:StepState[$Key] = $State
-    $u = $script:StepUi[$Key]; if (-not $u) { return }
+    $chipUi = $script:StepUi[$Key]; if (-not $chipUi) { return }
     # background, border, circle, glyph, text colour
-    $c = switch ($State) {
+    $colors = switch ($State) {
         'done' { @('#E6F6EA', '#9AD9AE', '#2EA043', [string][char]0x2713, '#1E6B34') }
         'busy' { @('#FFF6DD', '#F0CF7A', '#E3A008', [string][char]0x2026, '#7A5200') }
         'error' { @('#FDECEC', '#F2A9A5', '#D1242F', [string][char]0x2715, '#9F1D1D') }
-        default { @('#FFFFFF', '#D3DAE3', '#9AA6B6', "$($u.Num)", '#5B6B80') }
+        default { @('#FFFFFF', '#D3DAE3', '#9AA6B6', "$($chipUi.Num)", '#5B6B80') }
     }
-    $u.Border.Background = $Brush.ConvertFromString($c[0])
-    $u.Border.BorderBrush = $Brush.ConvertFromString($c[1])
-    $u.Circle.Background = $Brush.ConvertFromString($c[2])
-    $u.Glyph.Text = $c[3]
-    $u.Text.Foreground = $Brush.ConvertFromString($c[4])
+    $chipUi.Border.Background = $Brush.ConvertFromString($colors[0])
+    $chipUi.Border.BorderBrush = $Brush.ConvertFromString($colors[1])
+    $chipUi.Circle.Background = $Brush.ConvertFromString($colors[2])
+    $chipUi.Glyph.Text = $colors[3]
+    $chipUi.Text.Foreground = $Brush.ConvertFromString($colors[4])
 }
 function Update-Steps($src) {
     $ui.stepPanel.Children.Clear()
@@ -1761,7 +2107,7 @@ function Update-Steps($src) {
     if ($src.AD) { $steps += , @('ad', (T 'btn.verifyAD')) }
     $steps += , @('load', (T 'btn.load'))
     $i = 0
-    foreach ($s in $steps) {
+    foreach ($stepDef in $steps) {
         $i++
         if ($i -gt 1) {
             $sep = New-Object System.Windows.Controls.TextBlock
@@ -1770,8 +2116,8 @@ function Update-Steps($src) {
             $sep.Foreground = $Brush.ConvertFromString('#9AA6B6')
             [void]$ui.stepPanel.Children.Add($sep)
         }
-        [void]$ui.stepPanel.Children.Add((New-StepChip $s[0] $i $s[1]))
-        Set-Step $s[0] $script:StepState[$s[0]]
+        [void]$ui.stepPanel.Children.Add((New-StepChip $stepDef[0] $i $stepDef[1]))
+        Set-Step $stepDef[0] $script:StepState[$stepDef[0]]
     }
 }
 function Show-Msg([string]$text, [string]$title, [string]$buttons = 'OK', [string]$icon = 'Information') {
@@ -1810,10 +2156,10 @@ function Get-DomainCredential {
         if (-not $script:InDomain) { Show-Msg (T 'msg.notDomain') (T 'title.credentials') 'OK' 'Warning' | Out-Null; return $false }
         return $null
     }
-    $u = $ui.txtUser.Text.Trim()
-    if (-not $u -or $ui.pwdPass.SecurePassword.Length -eq 0) { Show-Msg (T 'msg.credMissing') (T 'title.credentials') 'OK' 'Warning' | Out-Null; return $false }
-    if ($u -notmatch '[\\@]' -and $cfg.DomainFqdn) { $u = "$u@$($cfg.DomainFqdn)" }
-    New-Object System.Management.Automation.PSCredential ($u, $ui.pwdPass.SecurePassword.Copy())
+    $userName = $ui.txtUser.Text.Trim()
+    if (-not $userName -or $ui.pwdPass.SecurePassword.Length -eq 0) { Show-Msg (T 'msg.credMissing') (T 'title.credentials') 'OK' 'Warning' | Out-Null; return $false }
+    if ($userName -notmatch '[\\@]' -and $cfg.DomainFqdn) { $userName = "$userName@$($cfg.DomainFqdn)" }
+    New-Object System.Management.Automation.PSCredential ($userName, $ui.pwdPass.SecurePassword.Copy())
 }
 
 function Update-CfgFromUI {
@@ -1832,14 +2178,14 @@ $ui.cmbLang.Add_SelectionChanged({
         if ($lang -and $lang -ne $cfg.Language) {
             $cfg.Language = $lang
             try { Save-HSConfig $cfg $ConfigPath } catch { }
-            $global:HS_Lang = $lang
+            $script:HS_Lang = $lang
             Show-Msg (T 'msg.restart') (T 'title.language') | Out-Null
         }
     })
 
 # ---------------------------------------------------------------- background runspace (persistent)
 $HS_Sync = [hashtable]::Synchronized(@{ Log = New-Object 'System.Collections.Concurrent.ConcurrentQueue[string]' })
-$global:HS_Sync = $HS_Sync
+$script:HS_Sync = $HS_Sync
 $script:RS = [runspacefactory]::CreateRunspace()
 $script:RS.ApartmentState = 'STA'
 $script:RS.ThreadOptions = 'ReuseThread'
@@ -1851,9 +2197,9 @@ $CoreText = $Core.ToString()
 $script:ADCred = $null; $script:ExCred = $null; $script:Data = $null; $script:Job = $null; $script:AfterInstall = $null
 
 function Set-Busy([bool]$busy, [string]$text) {
-    foreach ($b in 'btn365', 'btnSignOut', 'btnExch', 'btnAD', 'btnLoad', 'cmbGroupBy', 'rbCloud', 'rbFullHybrid', 'rbHybrid', 'rbOnPrem', 'rbAD') { $ui[$b].IsEnabled = -not $busy }
+    foreach ($control in 'btn365', 'btnSignOut', 'btnExch', 'btnAD', 'btnLoad', 'cmbGroupBy', 'rbCloud', 'rbFullHybrid', 'rbHybrid', 'rbOnPrem', 'rbAD') { $ui[$control].IsEnabled = -not $busy }
     $ui.btnStop.IsEnabled = $busy
-    foreach ($b in 'btnXlsx', 'btnCsvAll', 'btnTab') { $ui[$b].IsEnabled = (-not $busy) -and ($null -ne $script:Data) }
+    foreach ($control in 'btnXlsx', 'btnCsvAll', 'btnTab') { $ui[$control].IsEnabled = (-not $busy) -and ($null -ne $script:Data) }
     $ui.prg.IsIndeterminate = $busy
     if ($text) { $ui.lblStatus.Text = $text }
     $Window.Cursor = if ($busy) { [System.Windows.Input.Cursors]::AppStarting } else { $null }
@@ -1863,10 +2209,10 @@ function Start-HSJob {
     param([string]$Title, [string]$Script, [hashtable]$Vars = @{}, [scriptblock]$OnDone, [string]$Led, [string]$Label, [string]$Step)
     if ($script:Job) { return }
     $script:RS.SessionStateProxy.SetVariable('Cfg', $cfg)
-    foreach ($k in $Vars.Keys) { $script:RS.SessionStateProxy.SetVariable($k, $Vars[$k]) }
+    foreach ($varName in $Vars.Keys) { $script:RS.SessionStateProxy.SetVariable($varName, $Vars[$varName]) }
     $ps = [powershell]::Create()
     $ps.Runspace = $script:RS
-    [void]$ps.AddScript("`$ErrorActionPreference = 'Stop'`n`$global:HS_Sync = `$HS_Sync`n`$global:HS_AppDir = `$HS_AppDir`n`$global:HS_Lang = `$HS_Lang`n" + $Script)
+    [void]$ps.AddScript("`$ErrorActionPreference = 'Stop'`n`$script:HS_Sync = `$HS_Sync`n`$script:HS_AppDir = `$HS_AppDir`n`$script:HS_Lang = `$HS_Lang`n" + $Script)
     $script:Job = @{ PS = $ps; Handle = $ps.BeginInvoke(); OnDone = $OnDone; Led = $Led; Label = $Label; Step = $Step; Cancelled = $false }
     if ($Step) { Set-Step $Step 'busy' }
     Set-Busy $true $Title
@@ -1881,13 +2227,13 @@ function Install-MissingModules {
 if ($ToInstall.Count) {
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
     if (-not (Get-PackageProvider -ListAvailable -Name NuGet -ErrorAction SilentlyContinue)) { Install-PackageProvider -Name NuGet -Scope CurrentUser -Force | Out-Null }
-    foreach ($m in $ToInstall) { Write-HSLog (T 'log.installing' $m); Install-Module $m -Scope CurrentUser -Force -AllowClobber -Repository PSGallery }
+    foreach ($moduleName in $ToInstall) { Write-HSLog (T 'log.installing' $moduleName); Install-Module $moduleName -Scope CurrentUser -Force -AllowClobber -Repository PSGallery }
 }
 if ($NeedAD) { Install-HSRsatAD }
 Write-HSLog (T 'log.modulesDone')
 '@ -OnDone {
-        param($o, $e)
-        if ($e) { Show-Msg (T 'msg.modulesFail' $e.Message) (T 'title.error') 'OK' 'Error' | Out-Null }
+        param($out, $err)
+        if ($err) { Show-Msg (T 'msg.modulesFail' $err.Message) (T 'title.error') 'OK' 'Error' | Out-Null }
         else {
             Show-Msg (T 'msg.modulesOk') (T 'title.modules') | Out-Null
             if ($script:AfterInstall) { $cb = $script:AfterInstall; $script:AfterInstall = $null; & $cb }
@@ -1899,7 +2245,7 @@ Write-HSLog (T 'log.modulesDone')
 Start-HSJob -Title (T 'job.init') -Script ($CoreText + "`nWrite-HSLog (T 'log.ready' '$HS_Version')") -OnDone {
     param($out, $err)
     $missing = @(Test-HSModules)
-    if (-not (Get-HSSources $script:Mode).AD) { $missing = @($missing | Where-Object { $_ -ne 'ActiveDirectory' }) }
+    if (-not (Get-HSSources $script:CurrentMode).AD) { $missing = @($missing | Where-Object { $_ -ne 'ActiveDirectory' }) }
     if ($missing.Count) {
         $msg = T 'msg.modulesMissing' ($missing -join "`n - ")
         if ($missing -contains 'ActiveDirectory') { $msg += "`n`n" + (T 'msg.rsatNote') }
@@ -1914,21 +2260,21 @@ $timer.Add_Tick({
         while ($HS_Sync.Log.TryDequeue([ref]$line)) { $ui.txtLog.AppendText($line + "`r`n"); $ui.lblStatus.Text = $line; $got = $true }
         if ($got) { $ui.txtLog.ScrollToEnd() }
         if ($script:Job -and $script:Job.Handle.IsCompleted) {
-            $j = $script:Job; $script:Job = $null
+            $finishedJob = $script:Job; $script:Job = $null
             $out = $null; $err = $null
-            try { $out = $j.PS.EndInvoke($j.Handle) }
+            try { $out = $finishedJob.PS.EndInvoke($finishedJob.Handle) }
             catch { $err = if ($_.Exception.InnerException) { $_.Exception.InnerException } else { $_.Exception } }
-            $j.PS.Dispose()
+            $finishedJob.PS.Dispose()
             Set-Busy $false $null
-            if ($j.Cancelled) {
+            if ($finishedJob.Cancelled) {
                 $ui.txtLog.AppendText((T 'st.cancelled') + "`r`n"); $ui.lblStatus.Text = T 'st.cancelled'
-                if ($j.Led) { Set-Led $j.Led 'off'; $ui[$j.Label].Text = T 'st.cancelled' }
-                if ($j.Step) { Set-Step $j.Step 'todo' }
+                if ($finishedJob.Led) { Set-Led $finishedJob.Led 'off'; $ui[$finishedJob.Label].Text = T 'st.cancelled' }
+                if ($finishedJob.Step) { Set-Step $finishedJob.Step 'todo' }
                 return
             }
             if ($err) { $ui.txtLog.AppendText((T 'err.generic' $err.Message) + "`r`n"); $ui.lblStatus.Text = (T 'err.generic' $err.Message) }
-            if ($j.OnDone) {
-                try { & $j.OnDone $out $err }
+            if ($finishedJob.OnDone) {
+                try { & $finishedJob.OnDone $out $err }
                 catch { Show-Msg $_.Exception.Message (T 'title.error') 'OK' 'Error' | Out-Null }
             }
         }
@@ -1940,12 +2286,12 @@ function Set-HSFilter {
     $tab = $ui.tabs.SelectedItem
     if (-not $tab -or -not $tab.Tag) { $ui.lblCount.Text = ''; return }
     $dv = $tab.Tag.DefaultView
-    $t = $ui.txtFilter.Text.Trim()
-    if (-not $t) { $dv.RowFilter = '' }
+    $filterText = $ui.txtFilter.Text.Trim()
+    if (-not $filterText) { $dv.RowFilter = '' }
     else {
-        $v = $t.Replace("'", "''")
-        $v = [regex]::Replace($v, '[\[\]\*%]', [System.Text.RegularExpressions.MatchEvaluator] { param($m) "[$($m.Value)]" })
-        $parts = foreach ($c in $tab.Tag.Columns) { "CONVERT([$($c.ColumnName.Replace(']','\]'))], 'System.String') LIKE '%$v%'" }
+        $pattern = $filterText.Replace("'", "''")
+        $pattern = [regex]::Replace($pattern, '[\[\]\*%]', [System.Text.RegularExpressions.MatchEvaluator] { param($match) "[$($match.Value)]" })
+        $parts = foreach ($column in $tab.Tag.Columns) { "CONVERT([$($column.ColumnName.Replace(']','\]'))], 'System.String') LIKE '%$pattern%'" }
         try { $dv.RowFilter = ($parts -join ' OR ') } catch { }
     }
     $ui.lblCount.Text = T 'lbl.rows' @($dv.Count, $tab.Tag.Rows.Count)
@@ -1967,25 +2313,25 @@ function Show-HSTables {
         $grid.SelectionUnit = 'CellOrRowHeader'
         $grid.ClipboardCopyMode = 'IncludeHeader'
         $grid.Add_AutoGeneratingColumn({
-                param($s, $e)
+                param($source, $evtArgs)
                 $hdr = New-Object System.Windows.Controls.TextBlock   # TextBlock: no access-key handling of underscores
-                $hdr.Text = $e.PropertyName
-                $e.Column.Header = $hdr
-                if ($e.PropertyType -eq [datetime]) { $e.Column.Binding.StringFormat = 'yyyy-MM-dd HH:mm' }
-                elseif ($e.PropertyType -eq [double]) {
-                    $e.Column.Binding.StringFormat = if ($e.PropertyName -match '_MB$|_GB$|\(GB\)') { 'N2' } else { '#,##0.##' }
-                    $st = New-Object System.Windows.Style ([System.Windows.Controls.TextBlock])
-                    $st.Setters.Add((New-Object System.Windows.Setter ([System.Windows.Controls.TextBlock]::TextAlignmentProperty), ([System.Windows.TextAlignment]::Right)))
-                    $e.Column.ElementStyle = $st
+                $hdr.Text = $evtArgs.PropertyName
+                $evtArgs.Column.Header = $hdr
+                if ($evtArgs.PropertyType -eq [datetime]) { $evtArgs.Column.Binding.StringFormat = 'yyyy-MM-dd HH:mm' }
+                elseif ($evtArgs.PropertyType -eq [double]) {
+                    $evtArgs.Column.Binding.StringFormat = if ($evtArgs.PropertyName -match '_MB$|_GB$|\(GB\)') { 'N2' } else { '#,##0.##' }
+                    $alignStyle = New-Object System.Windows.Style ([System.Windows.Controls.TextBlock])
+                    $alignStyle.Setters.Add((New-Object System.Windows.Setter ([System.Windows.Controls.TextBlock]::TextAlignmentProperty), ([System.Windows.TextAlignment]::Right)))
+                    $evtArgs.Column.ElementStyle = $alignStyle
                 }
             })
         if ($name -eq $OverviewName) {
             $grid.Add_LoadingRow({
-                    param($s, $e)
-                    $row = $e.Row.Item
-                    $n = $row.Row.Table.Columns.Count
-                    if ($row -and $n -gt 1 -and $row[$n - 1] -is [DBNull]) { $e.Row.FontWeight = 'Bold'; $e.Row.Background = $Brush.ConvertFromString('#DCE6F2') }
-                    else { $e.Row.FontWeight = 'Normal'; $e.Row.Background = $null }
+                    param($source, $evtArgs)
+                    $row = $evtArgs.Row.Item
+                    $colCount = $row.Row.Table.Columns.Count
+                    if ($row -and $colCount -gt 1 -and $row[$colCount - 1] -is [DBNull]) { $evtArgs.Row.FontWeight = 'Bold'; $evtArgs.Row.Background = $Brush.ConvertFromString('#DCE6F2') }
+                    else { $evtArgs.Row.FontWeight = 'Normal'; $evtArgs.Row.Background = $null }
                 })
         }
         $grid.ItemsSource = $dt.DefaultView
@@ -2003,7 +2349,7 @@ function Show-HSTables {
     Set-HSFilter
 }
 
-$ui.tabs.Add_SelectionChanged({ param($s, $e) if ($e.OriginalSource -eq $ui.tabs) { Set-HSFilter } })
+$ui.tabs.Add_SelectionChanged({ param($source, $evtArgs) if ($evtArgs.OriginalSource -eq $ui.tabs) { Set-HSFilter } })
 $ui.txtFilter.Add_TextChanged({ Set-HSFilter })
 
 # ---------------------------------------------------------------- connection buttons
@@ -2022,10 +2368,10 @@ $ui.btnExch.Add_Click({
         if ($cfg.ExchangeProtocol -ne 'local' -and -not $cfg.ExchangeServer) { Show-Msg (T 'msg.exchNoServer') (T 'gb.exch') 'OK' 'Warning' | Out-Null; return }
         $script:ExCred = $null
         if ($cfg.ExchangeProtocol -ne 'local') {
-            $c = Get-DomainCredential
-            if ($c -is [bool]) { return }
-            if (-not $c -and $cfg.ExchangeAuth -eq 'Basic') { Show-Msg (T 'msg.basicNeedsCred') (T 'gb.exch') 'OK' 'Warning' | Out-Null; return }
-            $script:ExCred = $c
+            $cred = Get-DomainCredential
+            if ($cred -is [bool]) { return }
+            if (-not $cred -and $cfg.ExchangeAuth -eq 'Basic') { Show-Msg (T 'msg.basicNeedsCred') (T 'gb.exch') 'OK' 'Warning' | Out-Null; return }
+            $script:ExCred = $cred
         }
         Set-Led 'ledExch' 'busy'; $ui.lblExch.Text = T 'st.connecting'
         Start-HSJob -Title (T 'job.exch') -Led 'ledExch' -Label 'lblExch' -Vars @{ ExCred = $script:ExCred } -Script 'Connect-HSExchange -Cfg $Cfg -Credential $ExCred' -OnDone {
@@ -2043,9 +2389,9 @@ $ui.btnAD.Add_Click({
             }
             return
         }
-        $c = Get-DomainCredential
-        if ($c -is [bool]) { return }
-        $script:ADCred = $c
+        $cred = Get-DomainCredential
+        if ($cred -is [bool]) { return }
+        $script:ADCred = $cred
         Set-Led 'ledAD' 'busy'; $ui.lblAD.Text = T 'st.verifying'
         Start-HSJob -Title (T 'job.ad') -Led 'ledAD' -Label 'lblAD' -Vars @{ ADCred = $script:ADCred } -Script 'Test-HSAD -Cfg $Cfg -Credential $ADCred' -OnDone {
             param($out, $err)
@@ -2071,9 +2417,9 @@ $ui.btnStop.Add_Click({
     })
 
 # ---------------------------------------------------------------- infrastructure mode (not saved: one click to change)
-$script:Mode = if ("$($cfg.Mode)") { "$($cfg.Mode)" } else { 'FullHybrid' }
+$script:CurrentMode = if ($Mode) { $Mode } elseif ("$($cfg.Mode)") { "$($cfg.Mode)" } else { 'FullHybrid' }   # -Mode: starting mode for this session only
 function Set-HSMode([string]$Mode) {
-    $script:Mode = $Mode
+    $script:CurrentMode = $Mode
     $src = Get-HSSources $Mode
     $ui.gbM365.Visibility = if ($src.M365) { 'Visible' } else { 'Collapsed' }
     $ui.gbExch.Visibility = if ($src.Exch) { 'Visible' } else { 'Collapsed' }
@@ -2082,14 +2428,14 @@ function Set-HSMode([string]$Mode) {
     Update-Steps $src
 }
 $modeButtons = @{ Cloud = 'rbCloud'; FullHybrid = 'rbFullHybrid'; Hybrid = 'rbHybrid'; OnPrem = 'rbOnPrem'; AD = 'rbAD' }
-if (-not $modeButtons.ContainsKey($script:Mode)) { $script:Mode = 'FullHybrid' }
-$ui[$modeButtons[$script:Mode]].IsChecked = $true
-Set-HSMode $script:Mode
+if (-not $modeButtons.ContainsKey($script:CurrentMode)) { $script:CurrentMode = 'FullHybrid' }
+$ui[$modeButtons[$script:CurrentMode]].IsChecked = $true
+Set-HSMode $script:CurrentMode
 foreach ($rb in $modeButtons.Values) {
     $ui[$rb].Add_Checked({
-            param($sender, $e)
-            if ($sender.Tag -eq $script:Mode) { return }
-            Set-HSMode $sender.Tag
+            param($modeButton, $evtArgs)
+            if ($modeButton.Tag -eq $script:CurrentMode) { return }
+            Set-HSMode $modeButton.Tag
             if ($script:Data -and -not $script:Job) {
                 if ((Show-Msg (T 'msg.modeReload') (T 'title.mode') 'YesNo' 'Question') -eq 'Yes') {
                     $ui.btnLoad.RaiseEvent((New-Object System.Windows.RoutedEventArgs ([System.Windows.Controls.Button]::ClickEvent)))
@@ -2117,20 +2463,20 @@ $ui.cmbGroupBy.Add_SelectionChanged({
 # ---------------------------------------------------------------- load data
 $ui.btnLoad.Add_Click({
         Update-CfgFromUI
-        $src = Get-HSSources $script:Mode
+        $src = Get-HSSources $script:CurrentMode
         $script:ADCred = $null; $script:ExCred = $null
         if ($src.Exch -or $src.AD) {
-            $c = Get-DomainCredential
-            if ($c -is [bool]) { return }
-            $script:ADCred = $c
-            if ($cfg.ExchangeProtocol -ne 'local') { $script:ExCred = $c }
+            $cred = Get-DomainCredential
+            if ($cred -is [bool]) { return }
+            $script:ADCred = $cred
+            if ($cfg.ExchangeProtocol -ne 'local') { $script:ExCred = $cred }
         }
         $ui.expLog.IsExpanded = $true
         Start-HSJob -Title (T 'job.load') -Step 'load' -Vars @{ ADCred = $script:ADCred; ExCred = $script:ExCred; Sources = $src } -Script @'
-$d = Get-HSData -Cfg $Cfg -ADCredential $ADCred -ExchangeCredential $ExCred -Sources $Sources
+$data = Get-HSData -Cfg $Cfg -ADCredential $ADCred -ExchangeCredential $ExCred -Sources $Sources
 $tables = [ordered]@{}
-foreach ($k in $d.Tables.Keys) { $tables[$k] = ConvertTo-HSDataTable -Rows @($d.Tables[$k]) -NoLocalize:($k -eq $d.OverviewName) }
-$HS_Sync.Data = $d
+foreach ($tabName in $data.Tables.Keys) { $tables[$tabName] = ConvertTo-HSDataTable -Rows @($data.Tables[$tabName]) -NoLocalize:($tabName -eq $data.OverviewName) }
+$HS_Sync.Data = $data
 $HS_Sync.DataTables = $tables
 '@ -OnDone {
             param($out, $err)
@@ -2154,8 +2500,8 @@ $ui.btnXlsx.Add_Click({
         Start-HSJob -Title (T 'job.xlsx') -Vars @{ OutPath = $dlg.FileName } -Script 'Export-HSExcel -Data $HS_Sync.Data -Path $OutPath' -OnDone {
             param($out, $err)
             if ($err) { Show-Msg $err.Message 'XLSX' 'OK' 'Error' | Out-Null; return }
-            $p = "$(@($out)[-1])"
-            if ((Show-Msg (T 'msg.saved' $p) 'XLSX' 'YesNo' 'Information') -eq 'Yes') { Invoke-Item $p }
+            $savedPath = "$(@($out)[-1])"
+            if ((Show-Msg (T 'msg.saved' $savedPath) 'XLSX' 'YesNo' 'Information') -eq 'Yes') { Invoke-Item $savedPath }
         }
     })
 
@@ -2201,7 +2547,7 @@ $Window.Add_Closing({
         $timer.Stop()
         try {
             $ps = [powershell]::Create(); $ps.Runspace = $script:RS
-            [void]$ps.AddScript('try { Disconnect-MgGraph -ErrorAction SilentlyContinue | Out-Null } catch {}; if ($global:HS_ExSession) { Remove-PSSession $global:HS_ExSession -ErrorAction SilentlyContinue }')
+            [void]$ps.AddScript('try { Disconnect-MgGraph -ErrorAction SilentlyContinue | Out-Null } catch {}; if ($script:HS_ExSession) { Remove-PSSession $script:HS_ExSession -ErrorAction SilentlyContinue }')
             [void]$ps.Invoke(); $ps.Dispose()
             $script:RS.Close()
         }
