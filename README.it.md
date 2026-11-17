@@ -54,6 +54,7 @@ Chi è on-prem e chi è già nel cloud, quanto spazio occupa ogni mailbox, chi h
   - account AD non sincronizzati
 - **Export**: XLSX formattato (tutti i tab) o CSV, oppure solo il tab corrente con il filtro applicato.
 - **Funziona anche da PC fuori dominio**: credenziali Windows oppure utente e password di dominio inseriti a mano, con Kerberos.
+- **Modalità di infrastruttura**: *Full Cloud*, *Full Hybrid*, *Hybrid*, *On-Prem* o *AD*, selezionabili con un clic. L'app mostra e unisce solo le fonti che hai.
 - **Raggruppamento in tab** scelto dalla finestra: OU di primo livello, OU che contiene l'utente, lista unica oppure regole personalizzate.
 - Pulsante **Cambia account** per disconnettersi da Microsoft 365 e cancellare l'accesso salvato, e pulsante **Interrompi** per fermare un caricamento in corso.
 - **Modalità `-Auto`**: accesso con certificato per report pianificati. Mantiene una copia `HybridScope_LATEST.xlsx` e uno storico dell'andamento (utenti on-prem, spazio, % MFA).
@@ -101,6 +102,7 @@ Al primo avvio viene creato `config.json` accanto allo script. `config.sample.js
 
 ## Uso dell'interfaccia
 
+0. **Infrastruttura**: in alto nella finestra clicca il pulsante che corrisponde al tuo ambiente: *Full Cloud*, *Full Hybrid*, *Hybrid*, *On-Prem* o *AD*. Vengono mostrati solo i riquadri che servono.
 1. **Microsoft 365**: inserisci il tenant se vuoi (`contoso.onmicrosoft.com`), poi **Connetti 365**. Si apre il browser. La prima volta un amministratore deve dare il consenso ai permessi, tutti in sola lettura.
 2. **Credenziali di dominio**:
    - lascia **Usa credenziali Windows** su un PC nel dominio;
@@ -127,6 +129,20 @@ Al primo avvio viene creato `config.json` accanto allo script. `config.sample.js
 7. Cerca, ordina ed **esporta**.
 
 La lingua si cambia dal menu in alto a destra (serve un riavvio).
+
+### Modalità di infrastruttura
+
+Scegli la tua infrastruttura con i pulsanti in alto nella finestra. Riquadri di connessione, tab, colonne e panoramica si adattano alle fonti che hai. Per cambiare basta un clic: la scelta non è legata ai dati.
+
+| Pulsante | Fonti | Cosa ottieni |
+|---|---|---|
+| **Full Cloud** | Microsoft 365 | Utenti, licenze, mailbox Exchange Online, OneDrive, MFA, ultimo accesso |
+| **Full Hybrid** | Microsoft 365 + Exchange on-prem + AD | Tutto: posizione on-prem o 365, mailbox su entrambi i lati, MFA, licenze, dati AD |
+| **Hybrid** | Microsoft 365 + AD | Utenti AD uniti ai loro account cloud: licenze, Exchange Online, OneDrive, MFA |
+| **On-Prem** | Exchange on-prem + AD | Utenti AD con le loro mailbox on-prem: dimensione, database, quota, ultimo accesso, inattività |
+| **AD** | Active Directory | Utenti, OU, stato, ultimo logon, età della password, inattività |
+
+Per i report pianificati (`-Auto`) la modalità si imposta con `Mode` in `config.json`.
 
 ## Tab e colonne
 
@@ -181,6 +197,7 @@ La lingua si cambia dal menu in alto a destra (serve un riavvio).
 | Chiave | Default | Descrizione |
 |---|---|---|
 | `Language` | di sistema | `en` o `it` |
+| `Mode` | `FullHybrid` | `Cloud`, `FullHybrid`, `Hybrid`, `OnPrem` o `AD`. Modalità di partenza della finestra e modalità usata da `-Auto` |
 | `TenantId` | *(vuoto)* | Dominio o ID del tenant. Vuoto vuol dire il tenant dell'account con cui accedi |
 | `AuthMode` | `Interactive` | `Interactive` (browser) oppure `Certificate` (per `-Auto`) |
 | `ClientId`, `CertificateThumbprint` | | Impostati da `tools\New-HybridScopeApp.ps1` |
@@ -321,9 +338,11 @@ Get-ChildItem C:\HybridScope -Recurse | Unblock-File
 
 **Dove vengono inviati i miei dati?** Da nessuna parte. HybridScope comunica solo con il tuo AD, il tuo server Exchange e Microsoft Graph. I report restano sul tuo disco.
 
-**Funziona senza Exchange on-premises (solo cloud)?** Sì. Lascia vuoto `ExchangeServer`.
+**Funziona senza Microsoft 365, con solo Exchange 2016/2019 e AD?** Sì: usa la modalità **On-Prem**.
 
-**Funziona senza Active Directory?** Sì. Lascia vuoto `DomainFqdn`: tutti gli utenti Entra finiscono in SOLO_CLOUD.
+**Solo Microsoft 365, oppure Microsoft 365 + AD senza Exchange?** Sì: usa la modalità **Full Cloud** o **Hybrid**.
+
+**Solo Active Directory?** Sì: usa la modalità **AD**.
 
 ## Roadmap
 

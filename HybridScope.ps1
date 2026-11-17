@@ -29,7 +29,7 @@ param(
     [string]$ConfigPath
 )
 
-$HS_Version = '1.1.0'
+$HS_Version = '1.2.0'
 
 # Folder of the script / exe (PS2EXE does not set $PSScriptRoot)
 $AppDir = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent ([Environment]::GetCommandLineArgs()[0]) }
@@ -91,6 +91,13 @@ $Core = {
             'job.xlsx'          = 'Exporting Excel...'
             'job.csv'           = 'Exporting CSV...'
             'job.modules'       = 'Installing modules...'
+            'mode.cloud'        = 'Microsoft 365 only'
+            'mode.fullhybrid'   = 'Microsoft 365 + Exchange on-premises + Active Directory'
+            'mode.hybrid'       = 'Microsoft 365 + Active Directory (no Exchange on-premises)'
+            'mode.onprem'       = 'Exchange on-premises + Active Directory (no Microsoft 365)'
+            'mode.ad'           = 'Active Directory only'
+            'msg.modeReload'    = 'Infrastructure changed. Reload the data now?'
+            'title.mode'        = 'Infrastructure'
             'btn.signout'       = 'Change account'
             'tip.signout'       = 'Signs out of Microsoft 365 and clears the saved sign-in, so you can connect with a different account'
             'job.signout'       = 'Signing out of Microsoft 365...'
@@ -302,6 +309,13 @@ $Core = {
             'job.xlsx'          = 'Esportazione Excel...'
             'job.csv'           = 'Esportazione CSV...'
             'job.modules'       = 'Installazione moduli...'
+            'mode.cloud'        = 'Solo Microsoft 365'
+            'mode.fullhybrid'   = 'Microsoft 365 + Exchange on-premises + Active Directory'
+            'mode.hybrid'       = 'Microsoft 365 + Active Directory (senza Exchange on-premises)'
+            'mode.onprem'       = 'Exchange on-premises + Active Directory (senza Microsoft 365)'
+            'mode.ad'           = 'Solo Active Directory'
+            'msg.modeReload'    = 'Infrastruttura cambiata. Ricaricare i dati ora?'
+            'title.mode'        = 'Infrastruttura'
             'btn.signout'       = 'Cambia account'
             'tip.signout'       = "Disconnette da Microsoft 365 e cancella l'accesso salvato, così puoi collegarti con un altro account"
             'job.signout'       = 'Disconnessione da Microsoft 365...'
@@ -513,6 +527,7 @@ $Core = {
     function Get-HSDefaultConfig {
         [ordered]@{
             Language               = ''
+            Mode                   = 'FullHybrid'
             TenantId               = ''
             AuthMode               = 'Interactive'
             ClientId               = ''
@@ -592,6 +607,18 @@ $Core = {
         $f = if ($Cfg.OutputFolder) { $Cfg.OutputFolder } else { Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'HybridScope' }
         New-Item -ItemType Directory -Path $f -Force | Out-Null
         $f
+    }
+
+    function Get-HSSources {
+        # Which sources each infrastructure mode uses
+        param([string]$Mode)
+        switch ($Mode) {
+            'Cloud' { @{ M365 = $true; Exch = $false; AD = $false } }
+            'Hybrid' { @{ M365 = $true; Exch = $false; AD = $true } }
+            'OnPrem' { @{ M365 = $false; Exch = $true; AD = $true } }
+            'AD' { @{ M365 = $false; Exch = $false; AD = $true } }
+            default { @{ M365 = $true; Exch = $true; AD = $true } }
+        }
     }
 
     function Test-HSModules {
@@ -784,9 +811,10 @@ $Core = {
 
     # --------------------------------------------------------------------------- data collection
     function Get-HSData {
-        param($Cfg, [pscredential]$ADCredential, [pscredential]$ExchangeCredential)
+        param($Cfg, [pscredential]$ADCredential, [pscredential]$ExchangeCredential, [hashtable]$Sources)
 
         $ErrorActionPreference = 'Stop'
+        $Src = if ($Sources) { $Sources } else { Get-HSSources $Cfg.Mode }
         $global:HS_Warnings = [System.Collections.Generic.List[string]]::new()
         $Now = Get-Date
         $InactiveCut = $Now.AddDays( - [int]$Cfg.InactiveDays)
@@ -803,9 +831,19 @@ $Core = {
         if ($Cfg.LicenseNames) { foreach ($p in $Cfg.LicenseNames.PSObject.Properties) { $LicenseNames[$p.Name] = "$($p.Value)" } }
         $MappedOnly = ($Cfg.LicenseFilter -eq 'MappedOnly')
 
-        if (-not (Get-MgContext)) { throw (T 'err.not365') }
+        if ($Src.M365 -and -not (Get-MgContext)) { throw (T 'err.not365') }
+
+        $skus = @(); $SkuMap = @{}; $entra = @(); $EntraBySam = @{}; $EntraByUpn = @{}; $EntraByLocal = @{}
+        $MfaReg = @{}; $PerUser = @{}; $Mbx365 = @{}; $OneDrive = @{}
+        $TabMbx365 = [System.Collections.Generic.List[object]]::new(); $TabOD = [System.Collections.Generic.List[object]]::new()
+        $defMethod = {
+            param($r)
+            $d = if ($r.systemDefault -and $r.systemDefault -ne 'none') { $r.systemDefault } else { $r.defaultMethod }
+            if ($d -and $d -ne 'none') { Get-MethodName $d } else { '' }
+        }
 
         # ================================================= MICROSOFT GRAPH
+        if ($Src.M365) {
         $skus = Invoke-GraphPaged 'v1.0/subscribedSkus'
         $SkuMap = @{}; foreach ($s in $skus) { $SkuMap["$($s.skuId)"] = $s.skuPartNumber }
         Write-HSLog (T 'log.skus' $skus.Count)
@@ -855,11 +893,6 @@ $Core = {
                 }
                 catch { }
             }
-        }
-        $defMethod = {
-            param($r)
-            $d = if ($r.systemDefault -and $r.systemDefault -ne 'none') { $r.systemDefault } else { $r.defaultMethod }
-            if ($d -and $d -ne 'none') { Get-MethodName $d } else { '' }
         }
 
         # Per-user MFA state (beta)
@@ -916,10 +949,12 @@ $Core = {
         Write-HSLog (T 'log.reports' @($Mbx365.Count, $OneDrive.Count))
         if ($Concealed) { Write-HSLog (T 'warn.concealed') 'WARN' }
 
+        }   # end Microsoft 365
+
         # ================================================= EXCHANGE ON-PREMISES
         $ExchOnPrem = @{}; $ExchRemote = @{}; $ExchAvailable = $false
         $TabOnPrem = [System.Collections.Generic.List[object]]::new()
-        if ($Cfg.ExchangeServer -or $Cfg.ExchangeProtocol -eq 'local') {
+        if ($Src.Exch -and ($Cfg.ExchangeServer -or $Cfg.ExchangeProtocol -eq 'local')) {
             try {
                 $sessionOk = ($global:HS_ExMode -eq 'local' -or ($global:HS_ExSession -and $global:HS_ExSession.State -eq 'Opened')) -and (Get-Command Get-MailboxStatistics -ErrorAction SilentlyContinue)
                 if (-not $sessionOk) {
@@ -961,11 +996,11 @@ $Core = {
             }
             catch { Write-HSLog (T 'warn.exch' $_.Exception.Message) 'WARN' }
         }
-        else { Write-HSLog (T 'log.exchSkipped') }
+        elseif ($Src.Exch) { Write-HSLog (T 'log.exchSkipped') }
 
         # ================================================= ACTIVE DIRECTORY
         $adUsers = @(); $NetBIOS = ''
-        if ($Cfg.DomainFqdn) {
+        if ($Src.AD -and $Cfg.DomainFqdn) {
             try {
                 Import-Module ActiveDirectory -ErrorAction Stop
                 $common = @{ Server = $Cfg.DomainFqdn }
@@ -981,7 +1016,7 @@ $Core = {
             }
             catch { Write-HSLog (T 'warn.ad' $_.Exception.Message) 'WARN' }
         }
-        else { Write-HSLog (T 'log.adSkipped') }
+        elseif ($Src.AD) { Write-HSLog (T 'log.adSkipped') }
 
         # ================================================= USER ROWS
         $GrpOther = if ($Cfg.UnmappedGroup) { $Cfg.UnmappedGroup } else { T 'grp.other' }
@@ -1028,7 +1063,7 @@ $Core = {
             elseif ($remoteType) { $location = '365'; $mbxType = $remoteType; $mbxSource = T 'src.remote' }
             elseif ($exoPlan) { $location = '365'; $mbxType = 'Exchange Online'; $mbxSource = T 'src.graphPlan' }
             elseif ($inReport365) { $location = '365'; $mbxType = 'Exchange Online'; $mbxSource = T 'src.graphReport' }
-            else { $location = 'NO MAILBOX'; $mbxType = ''; $mbxSource = if ($Ad -and -not $ExchAvailable) { T 'src.exchNotRead' } else { '' } }
+            else { $location = 'NO MAILBOX'; $mbxType = ''; $mbxSource = if ($Src.Exch -and $Ad -and -not $ExchAvailable) { T 'src.exchNotRead' } else { '' } }
 
             $exchMB = if ($exch) { $exch.SizeMB } else { 0 }
             $mail365 = if ($inReport365) { $Mbx365[$upn] } elseif ($location -eq '365') { $null } else { 0 }
@@ -1057,7 +1092,7 @@ $Core = {
 
             if (-not $enabled -and $lic -ne $V.None) { $notes.Add((T 'note.licensedDisabled')) }
             if ($enabled -and $lic -ne $V.None -and $mfa -eq $V.MfaNo) { $notes.Add((T 'note.noMfa')) }
-            if ($Ad -and -not $Eu -and $enabled) { $notes.Add((T 'note.notSynced')) }
+            if ($Src.M365 -and $Ad -and -not $Eu -and $enabled) { $notes.Add((T 'note.notSynced')) }
             if ($Ad -and $Ad.PasswordNeverExpires) { $notes.Add((T 'note.pwdNeverExpires')) }
 
             [pscustomobject][ordered]@{
@@ -1136,18 +1171,27 @@ $Core = {
         & $add 'total' (T 'm.total') { param($r) @($r).Count }
         & $add 'enabled' (T 'm.enabled') { param($r) @($r | Where-Object { $_.Status -eq $V.Enabled }).Count }
         & $add 'disabled' (T 'm.disabled') { param($r) @($r | Where-Object { $_.Status -eq $V.Disabled }).Count }
-        & $add 'adOnly' (T 'm.adOnly') { param($r) @($r | Where-Object { $_.Origin -eq $V.ADOnly }).Count }
-        & $add 'cloudOnly' (T 'm.cloudOnly') { param($r) @($r | Where-Object { $_.Origin -eq $V.Cloud -or $_.Origin -eq $V.Guest }).Count }
-        & $add 'secLoc' (T 'm.sec.location') $null -Section
-        & $add 'loc365' (T 'm.loc' '365') { param($r) @($r | Where-Object { $_.Location -eq '365' }).Count }
-        & $add 'locOnPrem' (T 'm.loc' 'ON-PREM') { param($r) @($r | Where-Object { $_.Location -eq 'ON-PREM' }).Count }
-        & $add 'locNone' (T 'm.loc' 'NO MAILBOX') { param($r) @($r | Where-Object { $_.Location -eq 'NO MAILBOX' }).Count }
-        & $add 'secSpace' (T 'm.sec.space') $null -Section
-        & $add 'spaceOnPrem' (T 'm.spaceOnPrem') { param($r) & $sumGB $r 'MailboxOnPrem_MB' } -GB
-        & $add 'space365' (T 'm.space365') { param($r) & $sumGB $r 'Mailbox365_MB' } -GB
-        & $add 'spaceOD' (T 'm.spaceOD') { param($r) & $sumGB $r 'OneDrive_MB' } -GB
-        & $add 'avgOnPrem' (T 'm.avgOnPrem') { param($r) $x = @($r | Where-Object { $_.Location -eq 'ON-PREM' }); if ($x.Count) { [math]::Round((& $sumGB $x 'MailboxOnPrem_MB') / $x.Count, 2) } else { 0 } } -GB
-        & $add 'maxOnPrem' (T 'm.maxOnPrem') { param($r) $mx = 0.0; foreach ($x in $r) { if ($x.MailboxOnPrem_MB -gt $mx) { $mx = [double]$x.MailboxOnPrem_MB } }; [math]::Round($mx / 1024, 2) } -GB
+        if ($Src.AD -and $Src.M365) {
+            & $add 'adOnly' (T 'm.adOnly') { param($r) @($r | Where-Object { $_.Origin -eq $V.ADOnly }).Count }
+            & $add 'cloudOnly' (T 'm.cloudOnly') { param($r) @($r | Where-Object { $_.Origin -eq $V.Cloud -or $_.Origin -eq $V.Guest }).Count }
+        }
+        if ($Src.M365 -or $Src.Exch) {
+            & $add 'secLoc' (T 'm.sec.location') $null -Section
+            if ($Src.M365) { & $add 'loc365' (T 'm.loc' '365') { param($r) @($r | Where-Object { $_.Location -eq '365' }).Count } }
+            if ($Src.Exch) { & $add 'locOnPrem' (T 'm.loc' 'ON-PREM') { param($r) @($r | Where-Object { $_.Location -eq 'ON-PREM' }).Count } }
+            & $add 'locNone' (T 'm.loc' 'NO MAILBOX') { param($r) @($r | Where-Object { $_.Location -eq 'NO MAILBOX' }).Count }
+            & $add 'secSpace' (T 'm.sec.space') $null -Section
+            if ($Src.Exch) { & $add 'spaceOnPrem' (T 'm.spaceOnPrem') { param($r) & $sumGB $r 'MailboxOnPrem_MB' } -GB }
+            if ($Src.M365) {
+                & $add 'space365' (T 'm.space365') { param($r) & $sumGB $r 'Mailbox365_MB' } -GB
+                & $add 'spaceOD' (T 'm.spaceOD') { param($r) & $sumGB $r 'OneDrive_MB' } -GB
+            }
+            if ($Src.Exch) {
+                & $add 'avgOnPrem' (T 'm.avgOnPrem') { param($r) $x = @($r | Where-Object { $_.Location -eq 'ON-PREM' }); if ($x.Count) { [math]::Round((& $sumGB $x 'MailboxOnPrem_MB') / $x.Count, 2) } else { 0 } } -GB
+                & $add 'maxOnPrem' (T 'm.maxOnPrem') { param($r) $mx = 0.0; foreach ($x in $r) { if ($x.MailboxOnPrem_MB -gt $mx) { $mx = [double]$x.MailboxOnPrem_MB } }; [math]::Round($mx / 1024, 2) } -GB
+            }
+        }
+        if ($Src.M365) {
         & $add 'secLic' (T 'm.sec.lic') $null -Section
         $licNames = @($All | ForEach-Object { $_.Licenses -split ', ' } | Where-Object { $_ -and $_ -ne $V.None } | Sort-Object -Unique)
         foreach ($ln in $licNames) {
@@ -1162,10 +1206,11 @@ $Core = {
         & $add 'mfaPct' (T 'm.mfaPct') { param($r) $e = @($r | Where-Object { $_.MFA_Status -ne $V.MfaNotInEntra }); if ($e.Count) { [math]::Round(100 * @($e | Where-Object { $_.MFA_Status -eq $V.MfaYes }).Count / $e.Count, 1) } else { 0 } }
         & $add 'licNoMfa' (T 'm.licNoMfa') { param($r) @($r | Where-Object { $_.Status -eq $V.Enabled -and (& $isLic $_) -and $_.MFA_Status -eq $V.MfaNo }).Count }
         & $add 'perUserEnforced' (T 'm.perUserEnforced') { param($r) @($r | Where-Object { $_.MFA_PerUser -eq 'enforced' }).Count }
+        }   # end Microsoft 365 metrics
         & $add 'secInactive' (T 'm.sec.inactive') $null -Section
-        & $add 'inactiveAD' (T 'm.inactiveAD' $Cfg.InactiveDays) { param($r) @($r | Where-Object { $_.Status -eq $V.Enabled -and ($_.Origin -eq $V.Synced -or $_.Origin -eq $V.ADOnly) -and (-not $_.AD_LastLogon -or $_.AD_LastLogon -lt $InactiveCut) }).Count }
-        & $add 'inactive365' (T 'm.inactive365' $Cfg.InactiveDays) { param($r) @($r | Where-Object { $_.Status -eq $V.Enabled -and (& $isLic $_) -and (-not $_.M365_LastSignIn -or $_.M365_LastSignIn -lt $InactiveCut) }).Count }
-        & $add 'pwdOld' (T 'm.pwdOld' $Cfg.PasswordAgeDays) { param($r) @($r | Where-Object { $_.Status -eq $V.Enabled -and $_.PasswordLastSet -and $_.PasswordLastSet -lt $PwdCut }).Count }
+        if ($Src.AD) { & $add 'inactiveAD' (T 'm.inactiveAD' $Cfg.InactiveDays) { param($r) @($r | Where-Object { $_.Status -eq $V.Enabled -and ($_.Origin -eq $V.Synced -or $_.Origin -eq $V.ADOnly) -and (-not $_.AD_LastLogon -or $_.AD_LastLogon -lt $InactiveCut) }).Count } }
+        if ($Src.M365) { & $add 'inactive365' (T 'm.inactive365' $Cfg.InactiveDays) { param($r) @($r | Where-Object { $_.Status -eq $V.Enabled -and (& $isLic $_) -and (-not $_.M365_LastSignIn -or $_.M365_LastSignIn -lt $InactiveCut) }).Count } }
+        if ($Src.AD) { & $add 'pwdOld' (T 'm.pwdOld' $Cfg.PasswordAgeDays) { param($r) @($r | Where-Object { $_.Status -eq $V.Enabled -and $_.PasswordLastSet -and $_.PasswordLastSet -lt $PwdCut }).Count } }
 
         $colMetric = T 'col.metric'; $colTotal = T 'col.total'
         $Totals = @{}
@@ -1194,7 +1239,7 @@ $Core = {
             if ($r.Status -eq $V.Disabled -and $lic) { & $addA (T 'att.c3') $r '' }
             if ($r.Status -eq $V.Enabled -and $lic -and (-not $r.M365_LastSignIn -or $r.M365_LastSignIn -lt $InactiveCut)) { & $addA (T 'att.c4' $Cfg.InactiveDays) $r (& $lastOrNever $r.M365_LastSignIn) }
             if ($r.Status -eq $V.Enabled -and ($r.Origin -eq $V.Synced -or $r.Origin -eq $V.ADOnly) -and (-not $r.AD_LastLogon -or $r.AD_LastLogon -lt $InactiveCut)) { & $addA (T 'att.c5' $Cfg.InactiveDays) $r (& $lastOrNever $r.AD_LastLogon) }
-            if ($r.Origin -eq $V.ADOnly -and $r.Status -eq $V.Enabled) { & $addA (T 'att.c6') $r $r.OU }
+            if ($Src.M365 -and $Src.AD -and $r.Origin -eq $V.ADOnly -and $r.Status -eq $V.Enabled) { & $addA (T 'att.c6') $r $r.OU }
         }
         $Attn = @($Attn | Sort-Object Category, _k, Username | Select-Object * -ExcludeProperty _k)
 
@@ -1232,20 +1277,30 @@ $Core = {
             })
 
         # ================================================= TABLES (localized names)
+        # columns that make no sense for the selected infrastructure
+        $drop = @()
+        if (-not $Src.M365) { $drop += 'M365_LastSignIn', 'Licenses', 'Mailbox365_MB', 'OneDrive_MB', 'MFA_Status', 'MFA_DefaultMethod', 'MFA_Methods', 'MFA_PerUser', 'UPN', 'Origin' }
+        if (-not $Src.Exch) { $drop += 'MailboxOnPrem_MB' }
+        if (-not $Src.Exch -and -not $Src.M365) { $drop += 'Location', 'MailboxType', 'MailboxSource' }
+        if (-not $Src.AD) { $drop += 'AD_LastLogon', 'PasswordLastSet', 'OU' }
+        $strip = { param($rows) if ($drop.Count) { @($rows | Select-Object * -ExcludeProperty $drop) } else { @($rows) } }
+
         $Tables = [ordered]@{}
         $Tables[(T 'tab.overview')] = $Overview
-        $Tables[(T 'tab.users')] = $All
-        foreach ($g in $Groups.Keys) { $tn = if ($Tables.Contains($g)) { "OU_$g" } else { $g }; $Tables[$tn] = $Groups[$g] }
+        $Tables[(T 'tab.users')] = & $strip $All
+        foreach ($g in $Groups.Keys) { $tn = if ($Tables.Contains($g)) { "OU_$g" } else { $g }; $Tables[$tn] = & $strip $Groups[$g] }
         if ($TabOnPrem.Count) { $Tables[(T 'tab.mbxOnPrem')] = @($TabOnPrem | Sort-Object Size_MB -Descending) }
         if ($TabMbx365.Count) { $Tables[(T 'tab.mbx365')] = @($TabMbx365 | Sort-Object Size_MB -Descending) }
         if ($TabOD.Count) { $Tables[(T 'tab.onedrive')] = @($TabOD | Sort-Object Size_MB -Descending) }
-        $Tables[(T 'tab.mfa')] = $TabMfa
-        $Tables[(T 'tab.licenses')] = $TabLic
-        if ($Attn.Count) { $Tables[(T 'tab.attention')] = $Attn }
+        if ($Src.M365) {
+            $Tables[(T 'tab.mfa')] = $TabMfa
+            $Tables[(T 'tab.licenses')] = $TabLic
+        }
+        if ($Attn.Count) { $Tables[(T 'tab.attention')] = & $strip $Attn }
         $hist = Join-Path (Get-HSOutputFolder $Cfg) 'history.csv'
         if (Test-Path $hist) { $Tables[(T 'tab.history')] = @(Import-Csv -Path $hist -Delimiter ';' -Encoding UTF8) }
 
-        Write-HSLog (T 'log.done' @($All.Count, $Totals['loc365'], $Totals['locOnPrem'], $Totals['mfaPct']))
+        Write-HSLog (T 'log.done' @($All.Count, "$($Totals['loc365'])", "$($Totals['locOnPrem'])", "$($Totals['mfaPct'])"))
 
         [pscustomobject]@{
             Generated    = $Now
@@ -1254,7 +1309,7 @@ $Core = {
             MetricFlags  = @($M | ForEach-Object { [pscustomobject]@{ S = $_.S; G = $_.G } })
             Totals       = $Totals
             Warnings     = @($global:HS_Warnings | Select-Object -Unique)
-            Sources      = "AD $($Cfg.DomainFqdn) | Exchange $($Cfg.ExchangeServer) | Microsoft 365 $((Get-MgContext).TenantId)"
+            Sources      = (@($(if ($Src.AD) { "AD $($Cfg.DomainFqdn)" }), $(if ($Src.Exch) { "Exchange $($Cfg.ExchangeServer)" }), $(if ($Src.M365) { "Microsoft 365 $((Get-MgContext).TenantId)" })) | Where-Object { $_ }) -join ' | '
         }
     }
 
@@ -1414,7 +1469,7 @@ if ($Auto) {
     $global:HS_LogFile = Join-Path $logDir "HybridScope_$stamp.log"
     $exit = 0
     try {
-        Connect-HS365 -Cfg $cfg -Unattended:($cfg.AuthMode -eq 'Certificate') | Out-Null
+        if ((Get-HSSources $cfg.Mode).M365) { Connect-HS365 -Cfg $cfg -Unattended:($cfg.AuthMode -eq 'Certificate') | Out-Null }
         $data = Get-HSData -Cfg $cfg
         Update-HSHistory -Data $data -Cfg $cfg
         $xl = Join-Path $out "HybridScope_$stamp.xlsx"
@@ -1450,6 +1505,32 @@ $xamlText = @'
         Title="HybridScope" Height="860" Width="1500"
         WindowStartupLocation="CenterScreen" Background="#F3F4F6" FontFamily="Segoe UI" FontSize="12">
   <Window.Resources>
+    <Style x:Key="ModeButton" TargetType="RadioButton">
+      <Setter Property="Foreground" Value="#CFE0F5"/>
+      <Setter Property="FontWeight" Value="Normal"/>
+      <Setter Property="FontSize" Value="12.5"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Margin" Value="3,0"/>
+      <Setter Property="GroupName" Value="mode"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="RadioButton">
+            <Border x:Name="bd" CornerRadius="15" Padding="16,6" Background="#183858" BorderBrush="#2E5585" BorderThickness="1">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="bd" Property="Background" Value="#21486F"/></Trigger>
+              <Trigger Property="IsChecked" Value="True">
+                <Setter TargetName="bd" Property="Background" Value="#4FA3F7"/>
+                <Setter TargetName="bd" Property="BorderBrush" Value="#8CC4FF"/>
+                <Setter Property="Foreground" Value="White"/>
+                <Setter Property="FontWeight" Value="SemiBold"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
     <Style TargetType="Button">
       <Setter Property="Padding" Value="12,4"/>
       <Setter Property="Margin" Value="6,0,0,0"/>
@@ -1479,16 +1560,23 @@ $xamlText = @'
             <ComboBoxItem Content="English" Tag="en"/><ComboBoxItem Content="Italiano" Tag="it"/>
           </ComboBox>
         </StackPanel>
-        <StackPanel>
+        <StackPanel DockPanel.Dock="Left" VerticalAlignment="Center">
           <TextBlock x:Name="lblTitle" Text="HybridScope" Foreground="White" FontSize="20" FontWeight="SemiBold"/>
           <TextBlock Text="{{app.subtitle}}" Foreground="#9FB4D9"/>
+        </StackPanel>
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+          <RadioButton x:Name="rbCloud" Style="{StaticResource ModeButton}" Content="Full Cloud" Tag="Cloud" ToolTip="{{mode.cloud}}"/>
+          <RadioButton x:Name="rbFullHybrid" Style="{StaticResource ModeButton}" Content="Full Hybrid" Tag="FullHybrid" ToolTip="{{mode.fullhybrid}}"/>
+          <RadioButton x:Name="rbHybrid" Style="{StaticResource ModeButton}" Content="Hybrid" Tag="Hybrid" ToolTip="{{mode.hybrid}}"/>
+          <RadioButton x:Name="rbOnPrem" Style="{StaticResource ModeButton}" Content="On-Prem" Tag="OnPrem" ToolTip="{{mode.onprem}}"/>
+          <RadioButton x:Name="rbAD" Style="{StaticResource ModeButton}" Content="AD" Tag="AD" ToolTip="{{mode.ad}}"/>
         </StackPanel>
       </DockPanel>
     </Border>
 
     <Border DockPanel.Dock="Top" Background="White" BorderBrush="#DDE3EA" BorderThickness="0,0,0,1" Padding="12,8,12,2">
       <WrapPanel>
-        <GroupBox Header="{{gb.m365}}">
+        <GroupBox x:Name="gbM365" Header="{{gb.m365}}">
           <StackPanel Orientation="Horizontal">
             <TextBlock Text="{{lbl.tenant}}" Margin="0,0,6,0" FontWeight="Normal"/>
             <TextBox x:Name="txtTenant" Width="190" ToolTip="{{tip.tenant}}"/>
@@ -1498,7 +1586,7 @@ $xamlText = @'
             <TextBlock x:Name="lbl365" Text="{{st.notconnected}}" Foreground="#666" FontWeight="Normal" MinWidth="140"/>
           </StackPanel>
         </GroupBox>
-        <GroupBox Header="{{gb.cred}}">
+        <GroupBox x:Name="gbCred" Header="{{gb.cred}}">
           <StackPanel Orientation="Horizontal">
             <CheckBox x:Name="chkWinCred" Content="{{chk.wincred}}" IsChecked="True"/>
             <TextBlock Text="{{lbl.user}}" Margin="12,0,6,0" FontWeight="Normal"/>
@@ -1507,7 +1595,7 @@ $xamlText = @'
             <PasswordBox x:Name="pwdPass" Width="130" Height="24" VerticalContentAlignment="Center"/>
           </StackPanel>
         </GroupBox>
-        <GroupBox Header="{{gb.exch}}">
+        <GroupBox x:Name="gbExch" Header="{{gb.exch}}">
           <StackPanel Orientation="Horizontal">
             <TextBlock Text="{{lbl.server}}" Margin="0,0,6,0" FontWeight="Normal"/>
             <TextBox x:Name="txtExch" Width="180" ToolTip="{{tip.server}}"/>
@@ -1522,7 +1610,7 @@ $xamlText = @'
             <TextBlock x:Name="lblExch" Text="{{st.notconnected}}" Foreground="#666" FontWeight="Normal" MinWidth="140"/>
           </StackPanel>
         </GroupBox>
-        <GroupBox Header="{{gb.ad}}">
+        <GroupBox x:Name="gbAD" Header="{{gb.ad}}">
           <StackPanel Orientation="Horizontal">
             <TextBlock Text="{{lbl.domain}}" Margin="0,0,6,0" FontWeight="Normal"/>
             <TextBox x:Name="txtDomain" Width="140"/>
@@ -1673,7 +1761,7 @@ $CoreText = $Core.ToString()
 $script:ADCred = $null; $script:ExCred = $null; $script:Data = $null; $script:Job = $null; $script:AfterInstall = $null
 
 function Set-Busy([bool]$busy, [string]$text) {
-    foreach ($b in 'btn365', 'btnSignOut', 'btnExch', 'btnAD', 'btnLoad', 'cmbGroupBy') { $ui[$b].IsEnabled = -not $busy }
+    foreach ($b in 'btn365', 'btnSignOut', 'btnExch', 'btnAD', 'btnLoad', 'cmbGroupBy', 'rbCloud', 'rbFullHybrid', 'rbHybrid', 'rbOnPrem', 'rbAD') { $ui[$b].IsEnabled = -not $busy }
     $ui.btnStop.IsEnabled = $busy
     foreach ($b in 'btnXlsx', 'btnCsvAll', 'btnTab') { $ui[$b].IsEnabled = (-not $busy) -and ($null -ne $script:Data) }
     $ui.prg.IsIndeterminate = $busy
@@ -1720,6 +1808,7 @@ Write-HSLog (T 'log.modulesDone')
 Start-HSJob -Title (T 'job.init') -Script ($CoreText + "`nWrite-HSLog (T 'log.ready' '$HS_Version')") -OnDone {
     param($out, $err)
     $missing = @(Test-HSModules)
+    if (-not (Get-HSSources $script:Mode).AD) { $missing = @($missing | Where-Object { $_ -ne 'ActiveDirectory' }) }
     if ($missing.Count) {
         $msg = T 'msg.modulesMissing' ($missing -join "`n - ")
         if ($missing -contains 'ActiveDirectory') { $msg += "`n`n" + (T 'msg.rsatNote') }
@@ -1886,6 +1975,39 @@ $ui.btnStop.Add_Click({
         }
     })
 
+# ---------------------------------------------------------------- infrastructure mode (not saved: one click to change)
+$script:Mode = if ("$($cfg.Mode)") { "$($cfg.Mode)" } else { 'FullHybrid' }
+function Set-HSMode([string]$Mode) {
+    $script:Mode = $Mode
+    $src = Get-HSSources $Mode
+    $ui.gbM365.Visibility = if ($src.M365) { 'Visible' } else { 'Collapsed' }
+    $ui.gbExch.Visibility = if ($src.Exch) { 'Visible' } else { 'Collapsed' }
+    $ui.gbAD.Visibility = if ($src.AD) { 'Visible' } else { 'Collapsed' }
+    $ui.gbCred.Visibility = if ($src.Exch -or $src.AD) { 'Visible' } else { 'Collapsed' }
+    $steps = @()
+    if ($src.M365) { $steps += T 'btn.connect365' }
+    if ($src.Exch) { $steps += T 'btn.connectExch' }
+    if ($src.AD) { $steps += T 'btn.verifyAD' }
+    $steps += T 'btn.load'
+    $i = 0; $ui.lblEmpty.Text = ($steps | ForEach-Object { $i++; "$i. $_" }) -join '      '
+}
+$modeButtons = @{ Cloud = 'rbCloud'; FullHybrid = 'rbFullHybrid'; Hybrid = 'rbHybrid'; OnPrem = 'rbOnPrem'; AD = 'rbAD' }
+if (-not $modeButtons.ContainsKey($script:Mode)) { $script:Mode = 'FullHybrid' }
+$ui[$modeButtons[$script:Mode]].IsChecked = $true
+Set-HSMode $script:Mode
+foreach ($rb in $modeButtons.Values) {
+    $ui[$rb].Add_Checked({
+            param($sender, $e)
+            if ($sender.Tag -eq $script:Mode) { return }
+            Set-HSMode $sender.Tag
+            if ($script:Data -and -not $script:Job) {
+                if ((Show-Msg (T 'msg.modeReload') (T 'title.mode') 'YesNo' 'Question') -eq 'Yes') {
+                    $ui.btnLoad.RaiseEvent((New-Object System.Windows.RoutedEventArgs ([System.Windows.Controls.Button]::ClickEvent)))
+                }
+            }
+        })
+}
+
 # group-by selector
 $grpTags = @('TopLevelOU', 'ParentOU', 'None', 'Rules')
 $ui.cmbGroupBy.SelectedIndex = [math]::Max(0, $grpTags.IndexOf("$($cfg.GroupBy)"))
@@ -1905,13 +2027,17 @@ $ui.cmbGroupBy.Add_SelectionChanged({
 # ---------------------------------------------------------------- load data
 $ui.btnLoad.Add_Click({
         Update-CfgFromUI
-        $c = Get-DomainCredential
-        if ($c -is [bool]) { return }
-        $script:ADCred = $c
-        if ($cfg.ExchangeProtocol -ne 'local') { $script:ExCred = $c }
+        $src = Get-HSSources $script:Mode
+        $script:ADCred = $null; $script:ExCred = $null
+        if ($src.Exch -or $src.AD) {
+            $c = Get-DomainCredential
+            if ($c -is [bool]) { return }
+            $script:ADCred = $c
+            if ($cfg.ExchangeProtocol -ne 'local') { $script:ExCred = $c }
+        }
         $ui.expLog.IsExpanded = $true
-        Start-HSJob -Title (T 'job.load') -Vars @{ ADCred = $script:ADCred; ExCred = $script:ExCred } -Script @'
-$d = Get-HSData -Cfg $Cfg -ADCredential $ADCred -ExchangeCredential $ExCred
+        Start-HSJob -Title (T 'job.load') -Vars @{ ADCred = $script:ADCred; ExCred = $script:ExCred; Sources = $src } -Script @'
+$d = Get-HSData -Cfg $Cfg -ADCredential $ADCred -ExchangeCredential $ExCred -Sources $Sources
 $tables = [ordered]@{}
 foreach ($k in $d.Tables.Keys) { $tables[$k] = ConvertTo-HSDataTable -Rows @($d.Tables[$k]) -NoLocalize:($k -eq $d.OverviewName) }
 $HS_Sync.Data = $d

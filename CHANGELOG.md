@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2.0 - 2026-11-17
+- **Infrastructure modes** at the top of the window: Full Cloud, Full Hybrid, Hybrid (365 + AD), On-Prem (Exchange + AD), AD only
+- Every source is now optional: Microsoft 365 is no longer required (works with Exchange 2016/2019 + AD only)
+- Connection panels, columns, tabs, overview and attention list adapt to the selected mode
+- New `Mode` setting in `config.json` (starting mode and mode used by `-Auto`)
+- The ActiveDirectory module is only requested when the selected mode uses AD
+
 ## 1.1.0 - 2026-11-17
 - **Change account** button: signs out of Microsoft 365 and clears the cached sign-in; the sign-in is no longer persisted between sessions
 - **Stop** button to cancel a running operation (data load, connections, exports)

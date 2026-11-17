@@ -1,5 +1,6 @@
 {
   "Language": "en",
+  "Mode": "FullHybrid",
   "TenantId": "contoso.onmicrosoft.com",
   "AuthMode": "Interactive",
   "ClientId": "",

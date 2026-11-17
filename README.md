@@ -54,6 +54,7 @@ Who is on-prem and who is already in the cloud, how much space every mailbox use
   - AD accounts that are not synced
 - **Export**: formatted XLSX (all tabs) or CSV, or only the current tab with the filter applied.
 - **Works from a PC outside the domain**: either Windows credentials or a domain user and password entered manually, with Kerberos.
+- **Infrastructure modes**: *Full Cloud*, *Full Hybrid*, *Hybrid*, *On-Prem* or *AD*, selectable with one click. The app shows and merges only the sources you have.
 - **Grouping in tabs** chosen from the window: top-level OU, the OU that contains the user, a single list, or custom rules.
 - **Change account** button to sign out of Microsoft 365 and clear the saved sign-in, and a **Stop** button to cancel a running load.
 - **Headless mode `-Auto`**: certificate-based sign-in for scheduled reports. Keeps a `HybridScope_LATEST.xlsx` copy and a history of trends (on-prem users, space, % MFA).
@@ -101,6 +102,7 @@ It creates `HybridScope.exe` in the main folder with [PS2EXE](https://github.com
 
 ## Using the GUI
 
+0. **Infrastructure**: click the button that matches your environment at the top of the window: *Full Cloud*, *Full Hybrid*, *Hybrid*, *On-Prem* or *AD*. Only the panels you need are shown.
 1. **Microsoft 365**: optionally enter the tenant (`contoso.onmicrosoft.com`), then **Connect 365**. A browser window opens. The first time, an administrator must consent to the read-only permissions.
 2. **Domain credentials**:
    - leave **Use Windows credentials** checked on a domain-joined PC;
@@ -127,6 +129,20 @@ It creates `HybridScope.exe` in the main folder with [PS2EXE](https://github.com
 7. Search, sort, and **export**.
 
 The language can be switched from the top-right menu (restart required).
+
+### Infrastructure modes
+
+Pick your infrastructure with the buttons at the top of the window. The connection panels, tabs, columns and overview adapt to the sources you have. Switching takes one click: the choice is not tied to your data.
+
+| Button | Sources | What you get |
+|---|---|---|
+| **Full Cloud** | Microsoft 365 | Users, licenses, Exchange Online mailboxes, OneDrive, MFA, last sign-in |
+| **Full Hybrid** | Microsoft 365 + Exchange on-prem + AD | Everything: on-prem vs 365 location, mailboxes on both sides, MFA, licenses, AD data |
+| **Hybrid** | Microsoft 365 + AD | AD users merged with their cloud accounts: licenses, Exchange Online, OneDrive, MFA |
+| **On-Prem** | Exchange on-prem + AD | AD users with their on-prem mailboxes: size, database, quota, last access, inactivity |
+| **AD** | Active Directory | Users, OUs, status, last logon, password age, inactivity |
+
+For scheduled reports (`-Auto`) the mode comes from `Mode` in `config.json`.
 
 ## Tabs and columns
 
@@ -181,6 +197,7 @@ The language can be switched from the top-right menu (restart required).
 | Key | Default | Description |
 |---|---|---|
 | `Language` | system | `en` or `it` |
+| `Mode` | `FullHybrid` | `Cloud`, `FullHybrid`, `Hybrid`, `OnPrem` or `AD`. Starting mode of the GUI and mode used by `-Auto` |
 | `TenantId` | *(empty)* | Tenant domain or ID. Empty means the tenant of the signed-in account |
 | `AuthMode` | `Interactive` | `Interactive` (browser) or `Certificate` (for `-Auto`) |
 | `ClientId`, `CertificateThumbprint` | | Set by `tools\New-HybridScopeApp.ps1` |
@@ -320,9 +337,11 @@ Get-ChildItem C:\HybridScope -Recurse | Unblock-File
 
 **Where is my data sent?** Nowhere. HybridScope talks only to your AD, your Exchange server and Microsoft Graph. Reports stay on your disk.
 
-**Does it work without Exchange on-premises (cloud-only)?** Yes. Leave `ExchangeServer` empty.
+**Does it work without Microsoft 365, with only Exchange 2016/2019 and AD?** Yes: use **On-Prem** mode.
 
-**Does it work without Active Directory?** Yes. Leave `DomainFqdn` empty: every Entra user ends up in CLOUD_ONLY.
+**Only Microsoft 365, or Microsoft 365 + AD without Exchange?** Yes: use **Full Cloud** or **Hybrid** mode.
+
+**Only Active Directory?** Yes: use **AD** mode.
 
 ## Roadmap
 
