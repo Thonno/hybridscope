@@ -29,7 +29,7 @@ param(
     [string]$ConfigPath
 )
 
-$HS_Version = '1.0.0'
+$HS_Version = '1.1.0'
 
 # Folder of the script / exe (PS2EXE does not set $PSScriptRoot)
 $AppDir = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent ([Environment]::GetCommandLineArgs()[0]) }
@@ -91,6 +91,22 @@ $Core = {
             'job.xlsx'          = 'Exporting Excel...'
             'job.csv'           = 'Exporting CSV...'
             'job.modules'       = 'Installing modules...'
+            'btn.signout'       = 'Change account'
+            'tip.signout'       = 'Signs out of Microsoft 365 and clears the saved sign-in, so you can connect with a different account'
+            'job.signout'       = 'Signing out of Microsoft 365...'
+            'log.signedOut'     = 'Signed out of Microsoft 365, cached sign-in cleared'
+            'btn.stop'          = 'Stop'
+            'tip.stop'          = 'Stops the running operation'
+            'st.stopping'       = 'Stopping... (waits for the current request to finish)'
+            'st.cancelled'      = 'Operation cancelled'
+            'lbl.groupBy'       = 'Group by:'
+            'tip.groupBy'       = 'How users are split into tabs. Top-level OU = first OU under the domain; Parent OU = the OU that directly contains the user; Custom rules = GroupRules in config.json'
+            'grp.opt.top'       = 'Top-level OU'
+            'grp.opt.parent'    = 'Parent OU (where the user is)'
+            'grp.opt.none'      = 'No grouping'
+            'grp.opt.rules'     = 'Custom rules (config.json)'
+            'msg.regroup'       = 'Grouping changed. Reload the data now?'
+            'msg.noRules'       = 'No GroupRules defined in config.json: "Top-level OU" will be used. See the README for examples.'
             'title.modules'     = 'Missing modules'
             'title.credentials' = 'Credentials'
             'title.warnings'    = 'Warnings'
@@ -286,6 +302,22 @@ $Core = {
             'job.xlsx'          = 'Esportazione Excel...'
             'job.csv'           = 'Esportazione CSV...'
             'job.modules'       = 'Installazione moduli...'
+            'btn.signout'       = 'Cambia account'
+            'tip.signout'       = "Disconnette da Microsoft 365 e cancella l'accesso salvato, così puoi collegarti con un altro account"
+            'job.signout'       = 'Disconnessione da Microsoft 365...'
+            'log.signedOut'     = 'Disconnesso da Microsoft 365, accesso salvato cancellato'
+            'btn.stop'          = 'Interrompi'
+            'tip.stop'          = "Interrompe l'operazione in corso"
+            'st.stopping'       = 'Interruzione in corso... (attende la fine della richiesta attuale)'
+            'st.cancelled'      = 'Operazione interrotta'
+            'lbl.groupBy'       = 'Raggruppa per:'
+            'tip.groupBy'       = "Come dividere gli utenti nei tab. OU di primo livello = prima OU sotto il dominio; OU di appartenenza = l'OU che contiene direttamente l'utente; Regole personalizzate = GroupRules in config.json"
+            'grp.opt.top'       = 'OU di primo livello'
+            'grp.opt.parent'    = 'OU di appartenenza'
+            'grp.opt.none'      = 'Nessun raggruppamento'
+            'grp.opt.rules'     = 'Regole personalizzate (config.json)'
+            'msg.regroup'       = 'Raggruppamento cambiato. Ricaricare i dati ora?'
+            'msg.noRules'       = 'Nessuna regola GroupRules in config.json: verrà usata "OU di primo livello". Vedi il README per gli esempi.'
             'title.modules'     = 'Moduli mancanti'
             'title.credentials' = 'Credenziali'
             'title.warnings'    = 'Avvisi'
@@ -658,6 +690,8 @@ $Core = {
             # WAM needs a window handle: in the GUI the browser sign-in is used instead
             try { Set-MgGraphOption -DisableLoginByWAM $true } catch { }
             $p.Scopes = $scopes
+            # do not persist the sign-in between sessions: no silent re-login with the wrong account
+            $p.ContextScope = 'Process'
         }
         Connect-MgGraph @p
         $ctx = Get-MgContext
@@ -710,6 +744,20 @@ $Core = {
         catch { }
         Write-HSLog (T 'log.exchConnected' $info)
         $info
+    }
+
+    function Clear-HS365Session {
+        # Signs out and removes the Microsoft Graph PowerShell token cache, so the next
+        # "Connect 365" asks for an account again.
+        try { Disconnect-MgGraph -ErrorAction SilentlyContinue | Out-Null } catch { }
+        $paths = @(
+            (Join-Path $env:USERPROFILE '.mg'),
+            (Join-Path $env:LOCALAPPDATA '.IdentityService\mg.msal.cache'),
+            (Join-Path $env:LOCALAPPDATA '.IdentityService\mg.msal.cache.nocae'),
+            (Join-Path $env:LOCALAPPDATA '.IdentityService\mg.msal.cache.cae')
+        )
+        foreach ($p in $paths) { if (Test-Path $p) { Remove-Item $p -Recurse -Force -ErrorAction SilentlyContinue } }
+        Write-HSLog (T 'log.signedOut')
     }
 
     function Test-HSAD {
@@ -1041,7 +1089,7 @@ $Core = {
 
         $getGroup = {
             param($ad)
-            if (@($Cfg.GroupRules).Count) {
+            if ($Cfg.GroupBy -eq 'Rules' -and @($Cfg.GroupRules).Count) {
                 foreach ($rule in $Cfg.GroupRules) { if ($ad.DistinguishedName -like "*$($rule.Match)*") { return $rule.Group } }
                 return $GrpOther
             }
@@ -1445,6 +1493,7 @@ $xamlText = @'
             <TextBlock Text="{{lbl.tenant}}" Margin="0,0,6,0" FontWeight="Normal"/>
             <TextBox x:Name="txtTenant" Width="190" ToolTip="{{tip.tenant}}"/>
             <Button x:Name="btn365" Content="{{btn.connect365}}"/>
+            <Button x:Name="btnSignOut" Content="{{btn.signout}}" ToolTip="{{tip.signout}}"/>
             <Ellipse x:Name="led365" Width="12" Height="12" Fill="#B0B0B0" Margin="8,0,4,0"/>
             <TextBlock x:Name="lbl365" Text="{{st.notconnected}}" Foreground="#666" FontWeight="Normal" MinWidth="140"/>
           </StackPanel>
@@ -1489,7 +1538,15 @@ $xamlText = @'
       <DockPanel>
         <StackPanel Orientation="Horizontal">
           <Button x:Name="btnLoad" Content="{{btn.load}}" Margin="0" Background="#1565C0" Foreground="White" FontWeight="SemiBold" BorderBrush="#1565C0" Padding="18,5"/>
-          <Button x:Name="btnXlsx" Content="{{btn.xlsx}}" IsEnabled="False"/>
+          <Button x:Name="btnStop" Content="{{btn.stop}}" ToolTip="{{tip.stop}}" IsEnabled="False" Foreground="#B42318" BorderBrush="#E5A3A3"/>
+          <TextBlock Text="{{lbl.groupBy}}" Margin="16,0,6,0"/>
+          <ComboBox x:Name="cmbGroupBy" Width="215" ToolTip="{{tip.groupBy}}">
+            <ComboBoxItem Content="{{grp.opt.top}}" Tag="TopLevelOU"/>
+            <ComboBoxItem Content="{{grp.opt.parent}}" Tag="ParentOU"/>
+            <ComboBoxItem Content="{{grp.opt.none}}" Tag="None"/>
+            <ComboBoxItem Content="{{grp.opt.rules}}" Tag="Rules"/>
+          </ComboBox>
+          <Button x:Name="btnXlsx" Content="{{btn.xlsx}}" Margin="16,0,0,0" IsEnabled="False"/>
           <Button x:Name="btnCsvAll" Content="{{btn.csvall}}" IsEnabled="False"/>
           <Button x:Name="btnTab" Content="{{btn.tab}}" IsEnabled="False"/>
           <Button x:Name="btnFolder" Content="{{btn.folder}}"/>
@@ -1616,7 +1673,8 @@ $CoreText = $Core.ToString()
 $script:ADCred = $null; $script:ExCred = $null; $script:Data = $null; $script:Job = $null; $script:AfterInstall = $null
 
 function Set-Busy([bool]$busy, [string]$text) {
-    foreach ($b in 'btn365', 'btnExch', 'btnAD', 'btnLoad') { $ui[$b].IsEnabled = -not $busy }
+    foreach ($b in 'btn365', 'btnSignOut', 'btnExch', 'btnAD', 'btnLoad', 'cmbGroupBy') { $ui[$b].IsEnabled = -not $busy }
+    $ui.btnStop.IsEnabled = $busy
     foreach ($b in 'btnXlsx', 'btnCsvAll', 'btnTab') { $ui[$b].IsEnabled = (-not $busy) -and ($null -ne $script:Data) }
     $ui.prg.IsIndeterminate = $busy
     if ($text) { $ui.lblStatus.Text = $text }
@@ -1624,14 +1682,14 @@ function Set-Busy([bool]$busy, [string]$text) {
 }
 
 function Start-HSJob {
-    param([string]$Title, [string]$Script, [hashtable]$Vars = @{}, [scriptblock]$OnDone)
+    param([string]$Title, [string]$Script, [hashtable]$Vars = @{}, [scriptblock]$OnDone, [string]$Led, [string]$Label)
     if ($script:Job) { return }
     $script:RS.SessionStateProxy.SetVariable('Cfg', $cfg)
     foreach ($k in $Vars.Keys) { $script:RS.SessionStateProxy.SetVariable($k, $Vars[$k]) }
     $ps = [powershell]::Create()
     $ps.Runspace = $script:RS
     [void]$ps.AddScript("`$ErrorActionPreference = 'Stop'`n`$global:HS_Sync = `$HS_Sync`n`$global:HS_AppDir = `$HS_AppDir`n`$global:HS_Lang = `$HS_Lang`n" + $Script)
-    $script:Job = @{ PS = $ps; Handle = $ps.BeginInvoke(); OnDone = $OnDone }
+    $script:Job = @{ PS = $ps; Handle = $ps.BeginInvoke(); OnDone = $OnDone; Led = $Led; Label = $Label; Cancelled = $false }
     Set-Busy $true $Title
 }
 
@@ -1682,6 +1740,11 @@ $timer.Add_Tick({
             catch { $err = if ($_.Exception.InnerException) { $_.Exception.InnerException } else { $_.Exception } }
             $j.PS.Dispose()
             Set-Busy $false $null
+            if ($j.Cancelled) {
+                $ui.txtLog.AppendText((T 'st.cancelled') + "`r`n"); $ui.lblStatus.Text = T 'st.cancelled'
+                if ($j.Led) { Set-Led $j.Led 'off'; $ui[$j.Label].Text = T 'st.cancelled' }
+                return
+            }
             if ($err) { $ui.txtLog.AppendText((T 'err.generic' $err.Message) + "`r`n"); $ui.lblStatus.Text = (T 'err.generic' $err.Message) }
             if ($j.OnDone) {
                 try { & $j.OnDone $out $err }
@@ -1763,7 +1826,7 @@ $ui.txtFilter.Add_TextChanged({ Set-HSFilter })
 $ui.btn365.Add_Click({
         Update-CfgFromUI
         Set-Led 'led365' 'busy'; $ui.lbl365.Text = T 'st.login'
-        Start-HSJob -Title (T 'job.365') -Script 'Connect-HS365 -Cfg $Cfg' -OnDone {
+        Start-HSJob -Title (T 'job.365') -Led 'led365' -Label 'lbl365' -Script 'Connect-HS365 -Cfg $Cfg' -OnDone {
             param($out, $err)
             if ($err) { Set-Led 'led365' 'err'; $ui.lbl365.Text = T 'st.error'; Show-Msg $err.Message 'Microsoft 365' 'OK' 'Error' | Out-Null }
             else { Set-Led 'led365' 'ok'; $ui.lbl365.Text = "$(@($out)[-1])" }
@@ -1781,7 +1844,7 @@ $ui.btnExch.Add_Click({
             $script:ExCred = $c
         }
         Set-Led 'ledExch' 'busy'; $ui.lblExch.Text = T 'st.connecting'
-        Start-HSJob -Title (T 'job.exch') -Vars @{ ExCred = $script:ExCred } -Script 'Connect-HSExchange -Cfg $Cfg -Credential $ExCred' -OnDone {
+        Start-HSJob -Title (T 'job.exch') -Led 'ledExch' -Label 'lblExch' -Vars @{ ExCred = $script:ExCred } -Script 'Connect-HSExchange -Cfg $Cfg -Credential $ExCred' -OnDone {
             param($out, $err)
             if ($err) { Set-Led 'ledExch' 'err'; $ui.lblExch.Text = T 'st.error'; Show-Msg (T 'msg.exchHints' $err.Message) (T 'gb.exch') 'OK' 'Error' | Out-Null }
             else { Set-Led 'ledExch' 'ok'; $ui.lblExch.Text = "$(@($out)[-1])" }
@@ -1800,10 +1863,42 @@ $ui.btnAD.Add_Click({
         if ($c -is [bool]) { return }
         $script:ADCred = $c
         Set-Led 'ledAD' 'busy'; $ui.lblAD.Text = T 'st.verifying'
-        Start-HSJob -Title (T 'job.ad') -Vars @{ ADCred = $script:ADCred } -Script 'Test-HSAD -Cfg $Cfg -Credential $ADCred' -OnDone {
+        Start-HSJob -Title (T 'job.ad') -Led 'ledAD' -Label 'lblAD' -Vars @{ ADCred = $script:ADCred } -Script 'Test-HSAD -Cfg $Cfg -Credential $ADCred' -OnDone {
             param($out, $err)
             if ($err) { Set-Led 'ledAD' 'err'; $ui.lblAD.Text = T 'st.error'; Show-Msg $err.Message (T 'gb.ad') 'OK' 'Error' | Out-Null }
             else { Set-Led 'ledAD' 'ok'; $ui.lblAD.Text = "$(@($out)[-1])" }
+        }
+    })
+
+$ui.btnSignOut.Add_Click({
+        Start-HSJob -Title (T 'job.signout') -Script 'Clear-HS365Session' -OnDone {
+            param($out, $err)
+            Set-Led 'led365' 'off'; $ui.lbl365.Text = T 'st.notconnected'
+        }
+    })
+
+$ui.btnStop.Add_Click({
+        if ($script:Job -and -not $script:Job.Cancelled) {
+            $script:Job.Cancelled = $true
+            $ui.btnStop.IsEnabled = $false
+            $ui.lblStatus.Text = T 'st.stopping'
+            [void]$script:Job.PS.BeginStop($null, $null)
+        }
+    })
+
+# group-by selector
+$grpTags = @('TopLevelOU', 'ParentOU', 'None', 'Rules')
+$ui.cmbGroupBy.SelectedIndex = [math]::Max(0, $grpTags.IndexOf("$($cfg.GroupBy)"))
+$ui.cmbGroupBy.Add_SelectionChanged({
+        $tag = $ui.cmbGroupBy.SelectedItem.Tag
+        if (-not $tag -or $tag -eq $cfg.GroupBy) { return }
+        if ($tag -eq 'Rules' -and -not @($cfg.GroupRules).Count) { Show-Msg (T 'msg.noRules') (T 'lbl.groupBy') 'OK' 'Information' | Out-Null }
+        $cfg.GroupBy = $tag
+        try { Save-HSConfig $cfg $ConfigPath } catch { }
+        if ($script:Data -and -not $script:Job) {
+            if ((Show-Msg (T 'msg.regroup') (T 'lbl.groupBy') 'YesNo' 'Question') -eq 'Yes') {
+                $ui.btnLoad.RaiseEvent((New-Object System.Windows.RoutedEventArgs ([System.Windows.Controls.Button]::ClickEvent)))
+            }
         }
     })
 

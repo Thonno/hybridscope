@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.0 - 2026-11-17
+- **Change account** button: signs out of Microsoft 365 and clears the cached sign-in; the sign-in is no longer persisted between sessions
+- **Stop** button to cancel a running operation (data load, connections, exports)
+- **Group by** selector in the GUI: top-level OU, parent OU, no grouping, custom rules (`GroupBy = Rules`)
+- `GroupRules` are now applied only when `GroupBy` is `Rules`
+
 ## 1.0.0 - 2026-11-17
 First public release.
 

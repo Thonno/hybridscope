@@ -53,6 +53,8 @@ Chi è on-prem e chi è già nel cloud, quanto spazio occupa ogni mailbox, chi h
   - account AD non sincronizzati
 - **Export**: XLSX formattato (tutti i tab) o CSV, oppure solo il tab corrente con il filtro applicato.
 - **Funziona anche da PC fuori dominio**: credenziali Windows oppure utente e password di dominio inseriti a mano, con Kerberos.
+- **Raggruppamento in tab** scelto dalla finestra: OU di primo livello, OU che contiene l'utente, lista unica oppure regole personalizzate.
+- Pulsante **Cambia account** per disconnettersi da Microsoft 365 e cancellare l'accesso salvato, e pulsante **Interrompi** per fermare un caricamento in corso.
 - **Modalità `-Auto`**: accesso con certificato per report pianificati. Mantiene una copia `HybridScope_LATEST.xlsx` e uno storico dell'andamento (utenti on-prem, spazio, % MFA).
 - Interfaccia in **italiano / inglese**.
 - **Sola lettura**: HybridScope non modifica nulla in AD, Exchange o Microsoft 365.
@@ -95,6 +97,8 @@ Al primo avvio viene creato `config.json` accanto allo script. `config.sample.js
    - altrimenti togli la spunta e scrivi utente e password: `mario@contoso.local`, `CONTOSO\mario` oppure solo `mario`, e in quel caso `@dominio` viene aggiunto in automatico.
 
    Valgono sia per Exchange sia per AD. L'utente viene ricordato, la password mai.
+
+   Sei entrato in Microsoft 365 con l'account sbagliato? Premi **Cambia account**: disconnette e cancella l'accesso salvato, poi **Connetti 365** chiede di nuovo l'account. L'accesso non viene mai conservato tra una sessione e l'altra.
 3. **Exchange on-premises**: inserisci il nome **interno** di un server Exchange (es. `exch01.contoso.local`) e scegli la modalità:
    - `http` + `Kerberos`: consigliata, nessun certificato
    - `https`: solo con un certificato valido per quel nome
@@ -102,8 +106,15 @@ Al primo avvio viene creato `config.json` accanto allo script. `config.sample.js
 
    Poi premi **Connetti Exchange**.
 4. **Active Directory**: controlla il dominio e premi **Verifica AD**.
-5. Premi **Carica dati**. L'avanzamento compare nel pannello **Log**; qualche centinaio di utenti richiede pochi minuti.
-6. Cerca, ordina ed **esporta**.
+5. Scegli **Raggruppa per**:
+   - *OU di primo livello*: la prima OU sotto il dominio, es. `Vendite`
+   - *OU di appartenenza*: l'OU che contiene direttamente l'utente, es. `Interni` o `Esterni`; di solito è la più utile
+   - *Nessun raggruppamento*: una lista unica
+   - *Regole personalizzate*: `GroupRules` in `config.json`
+
+   Non devi mai mappare le OU a mano: il raggruppamento è automatico e la scelta viene ricordata.
+6. Premi **Carica dati**. L'avanzamento compare nel pannello **Log**; qualche centinaio di utenti richiede pochi minuti. **Interrompi** ferma il caricamento; attende la fine della richiesta in corso.
+7. Cerca, ordina ed **esporta**.
 
 La lingua si cambia dal menu in alto a destra (serve un riavvio).
 
@@ -177,8 +188,8 @@ La lingua si cambia dal menu in alto a destra (serve un riavvio).
 | `PasswordAgeDays` | `365` | Soglia password vecchia |
 | `LicenseFilter` | `All` | `All` mostra tutti gli SKU (quelli sconosciuti con il nome tecnico); `MappedOnly` mostra solo quelli in `LicenseNames` |
 | `LicenseNames` | SKU comuni | `"SKU_PART_NUMBER": "Nome leggibile"`. Aggiungi o rinomina liberamente |
-| `GroupBy` | `TopLevelOU` | Se `GroupRules` è vuoto: `TopLevelOU`, `ParentOU` o `None` (gruppo unico) |
-| `GroupRules` | `[]` | `[{ "Group": "DIPENDENTI", "Match": "OU=Dipendenti," }]`. Vince il primo match sul DistinguishedName |
+| `GroupBy` | `TopLevelOU` | `TopLevelOU`, `ParentOU`, `None` (gruppo unico) oppure `Rules` (usa `GroupRules`). Selezionabile anche dalla finestra |
+| `GroupRules` | `[]` | Usato solo con `GroupBy = Rules`. `[{ "Group": "DIPENDENTI", "Match": "OU=Dipendenti," }]`; vince il primo match sul DistinguishedName |
 | `UnmappedGroup`, `CloudOnlyGroup` | `ALTRI`, `SOLO_CLOUD` | Nomi personalizzati per quei gruppi |
 | `IncludeGuests` | `false` | Includi gli ospiti Entra |
 
@@ -236,6 +247,12 @@ Permessi Microsoft Graph (delegati nell'interfaccia, applicativi per `-Auto`):
 Esecuzione manuale: `powershell -File .\HybridScope.ps1 -Auto`
 
 ## Risoluzione problemi
+
+<details>
+<summary><b>Collegato a Microsoft 365 con l'account sbagliato</b></summary>
+
+Premi **Cambia account** per disconnetterti e cancellare l'accesso salvato, poi di nuovo **Connetti 365**. Se il browser sceglie da solo l'account sbagliato, nella pagina di accesso Microsoft scegli *Usa un altro account*, oppure esci prima da quell'account nel browser.
+</details>
 
 <details>
 <summary><b>"WorkgroupCannotUseKerberos" / "Impossibile utilizzare l'autenticazione Kerberos con credenziali implicite"</b></summary>

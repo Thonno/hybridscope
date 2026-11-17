@@ -46,7 +46,7 @@
     "VISIOCLIENT": "Visio Plan 2",
     "FLOW_FREE": "Power Automate (free)"
   },
-  "GroupBy": "TopLevelOU",
+  "GroupBy": "Rules",
   "GroupRules": [
     {
       "Group": "DISABLED",

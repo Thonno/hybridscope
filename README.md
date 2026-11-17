@@ -53,6 +53,8 @@ Who is on-prem and who is already in the cloud, how much space every mailbox use
   - AD accounts that are not synced
 - **Export**: formatted XLSX (all tabs) or CSV, or only the current tab with the filter applied.
 - **Works from a PC outside the domain**: either Windows credentials or a domain user and password entered manually, with Kerberos.
+- **Grouping in tabs** chosen from the window: top-level OU, the OU that contains the user, a single list, or custom rules.
+- **Change account** button to sign out of Microsoft 365 and clear the saved sign-in, and a **Stop** button to cancel a running load.
 - **Headless mode `-Auto`**: certificate-based sign-in for scheduled reports. Keeps a `HybridScope_LATEST.xlsx` copy and a history of trends (on-prem users, space, % MFA).
 - **English / Italian** interface.
 - **Read-only**: HybridScope never changes anything in AD, Exchange or Microsoft 365.
@@ -95,6 +97,8 @@ Who is on-prem and who is already in the cloud, how much space every mailbox use
    - otherwise uncheck it and type user and password: `john@contoso.local`, `CONTOSO\john` or just `john`, in which case `@domain` is added for you.
 
    These credentials are used for both Exchange and AD. The user name is remembered; the password never is.
+
+   Signed in to Microsoft 365 with the wrong account? Click **Change account**: it signs out and clears the saved sign-in, then **Connect 365** asks for an account again. The sign-in is never kept between sessions.
 3. **Exchange on-premises**: enter the **internal** FQDN of an Exchange server (e.g. `exch01.contoso.local`) and choose a mode:
    - `http` + `Kerberos`: recommended, no certificate needed
    - `https`: only with a valid certificate for that name
@@ -102,8 +106,15 @@ Who is on-prem and who is already in the cloud, how much space every mailbox use
 
    Then click **Connect Exchange**.
 4. **Active Directory**: check the domain and click **Verify AD**.
-5. Click **Load data**. Progress appears in the **Log** panel; a few hundred users take a few minutes.
-6. Search, sort, and **export**.
+5. Choose **Group by**:
+   - *Top-level OU*: the first OU under the domain, e.g. `Sales`
+   - *Parent OU*: the OU that directly contains the user, e.g. `Employees` or `External`; usually the most useful
+   - *No grouping*: a single list
+   - *Custom rules*: `GroupRules` in `config.json`
+
+   You never have to map OUs by hand: grouping is automatic, and the choice is remembered.
+6. Click **Load data**. Progress appears in the **Log** panel; a few hundred users take a few minutes. **Stop** cancels the load; it waits for the current request to finish.
+7. Search, sort, and **export**.
 
 The language can be switched from the top-right menu (restart required).
 
@@ -177,8 +188,8 @@ The language can be switched from the top-right menu (restart required).
 | `PasswordAgeDays` | `365` | Old password threshold |
 | `LicenseFilter` | `All` | `All` shows every SKU (unknown ones with the raw name); `MappedOnly` shows only SKUs listed in `LicenseNames` |
 | `LicenseNames` | common SKUs | `"SKU_PART_NUMBER": "Friendly name"`. Add or rename freely |
-| `GroupBy` | `TopLevelOU` | When `GroupRules` is empty: `TopLevelOU`, `ParentOU` or `None` (single group) |
-| `GroupRules` | `[]` | `[{ "Group": "EMPLOYEES", "Match": "OU=Employees," }]`. First match on the DistinguishedName wins |
+| `GroupBy` | `TopLevelOU` | `TopLevelOU`, `ParentOU`, `None` (single group) or `Rules` (uses `GroupRules`). Also selectable in the GUI |
+| `GroupRules` | `[]` | Used only with `GroupBy = Rules`. `[{ "Group": "EMPLOYEES", "Match": "OU=Employees," }]`; the first match on the DistinguishedName wins |
 | `UnmappedGroup`, `CloudOnlyGroup` | `OTHER`, `CLOUD_ONLY` | Custom names for those groups |
 | `IncludeGuests` | `false` | Include Entra guests |
 
@@ -235,6 +246,12 @@ Microsoft Graph permissions (delegated in the GUI, application for `-Auto`):
 Manual run: `powershell -File .\HybridScope.ps1 -Auto`
 
 ## Troubleshooting
+
+<details>
+<summary><b>Connected to Microsoft 365 with the wrong account</b></summary>
+
+Click **Change account** to sign out and clear the cached sign-in, then **Connect 365** again. If the browser picks the wrong account by itself, choose *Use another account* on the Microsoft sign-in page, or sign out of that account in the browser first.
+</details>
 
 <details>
 <summary><b>"WorkgroupCannotUseKerberos" / "Cannot use Kerberos with implicit credentials"</b></summary>
