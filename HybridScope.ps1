@@ -17,8 +17,10 @@
       Full report        -Auto. No window: reads config.json, collects everything for the configured
                          Mode, writes the Excel report to OutputFolder and appends to history.csv.
 
-      One dataset        -Only <name>. No window: collects just that dataset (e.g. MFA) and writes
+      One dataset        -Only <name>. No window: collects just that dataset and writes
                          HybridScope_<name>_<timestamp>.xlsx, or returns it with -PassThru.
+                         <name>: MFA, Licenses, Mailbox365, OneDrive, MailboxOnPrem
+                         (details: Get-Help .\HybridScope.ps1 -Parameter Only)
 
       Pipeline           -PassThru. Returns objects instead of writing files: the rows of the -Only
                          dataset, or one merged row per user without -Only.
