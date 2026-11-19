@@ -50,19 +50,24 @@ Chi è on-prem e chi è già nel cloud, quanto spazio occupa ogni mailbox, chi h
   - **Microsoft 365 (Microsoft Graph)**: licenze, ultimo accesso, mailbox Exchange Online, OneDrive, registrazione MFA e metodi, stato MFA per-user, licenze acquistate e libere
 - **Posizione della mailbox affidabile**: `ON-PREM` / `365` / `NO MAILBOX` arriva da Exchange (`Get-Mailbox`, `Get-RemoteMailbox`) e da Graph (`provisionedPlans`), mai dallo spazio occupato.
 - **Stato MFA reale**: se è registrato almeno un metodo, quali metodi, quello predefinito e lo stato per-user legacy.
+- **Scheda utente**: doppio clic su un utente in qualsiasi tab per vedere in una sola finestra AD, mailbox, OneDrive, MFA, licenze e dati di sincronizzazione, insieme ai suoi **gruppi e ruoli**: gruppi AD (diretti, annidati e primario), gruppi Entra (Microsoft 365, sicurezza, distribuzione, dinamici) e ruoli Entra.
+- **Controllo della sincronizzazione (tab SYNC)**: confronta AD ed Entra ID come li collegano Entra Connect / Cloud Sync e segnala cosa è rotto o sta per rompersi: `ImmutableId` che non corrisponde più all'ancora AD, account sincronizzati che non esistono più in AD, account cloud con un `ImmutableId` residuo, account AD che alla prima sincronizzazione faranno soft-match o andranno in conflitto con un account cloud, errori di provisioning, UPN finiti su `onmicrosoft.com`, e quando è girata l'ultima sincronizzazione.
 - **Panoramica** per gruppo (OU) con totali, più una lista **Da attenzionare**:
   - mailbox on-prem da migrare, ordinate per dimensione
   - utenti licenziati senza MFA
   - licenze assegnate ad account disabilitati
   - account inattivi
   - account AD non sincronizzati
+  - problemi di sincronizzazione
 - **Export**: XLSX formattato (tutti i tab) o CSV, oppure solo il tab corrente con il filtro applicato.
+- **Apri un report salvato** (File > Apri report, Ctrl+O, oppure trascinalo sulla finestra): un report XLSX, una cartella di export CSV o un singolo CSV, in entrambe le lingue. Sfogli, cerchi, riesporti e apri le schede utente senza collegarti a niente, per esempio l'`HybridScope_LATEST.xlsx` giornaliero da un altro PC.
 - **Funziona anche da PC fuori dominio**: credenziali Windows oppure utente e password di dominio inseriti a mano, con Kerberos.
 - **Modalità di infrastruttura**: *Full Cloud*, *Full Hybrid*, *Hybrid*, *On-Prem* o *AD*, selezionabili con un clic. L'app mostra e unisce solo le fonti che hai.
 - **Raggruppamento in tab** scelto dalla finestra: OU di primo livello, OU che contiene l'utente, lista unica oppure regole personalizzate.
 - **Indicatori di avanzamento**: Connetti 365 › Connetti Exchange › Verifica AD › Carica dati diventano verdi con una ✓ quando sono completati, gialli durante l'esecuzione e rossi in caso di errore.
 - Pulsante **Cambia account** per disconnettersi da Microsoft 365 e cancellare l'accesso salvato, e pulsante **Interrompi** per fermare un caricamento in corso.
-- **Riga di comando**: `-Auto` per il report completo, `-Only MFA` (oppure `Licenses`, `Mailbox365`, `OneDrive`, `MailboxOnPrem`) per un solo insieme di dati, `-PassThru` per avere oggetti nella pipeline. Accesso con certificato per i report pianificati. Mantiene una copia `HybridScope_LATEST.xlsx` e uno storico dell'andamento (utenti on-prem, spazio, % MFA).
+- **Riga di comando**: `-Auto` per il report completo, `-Only MFA` (oppure `Licenses`, `Mailbox365`, `OneDrive`, `MailboxOnPrem`, `Sync`) per un solo insieme di dati, `-PassThru` per avere oggetti nella pipeline. Accesso con certificato per i report pianificati. Mantiene una copia `HybridScope_LATEST.xlsx` e uno storico dell'andamento (utenti on-prem, spazio, % MFA).
+- Menu **File** e **Aiuto**: apri report, export, cartella dei report, documentazione (F1), **Cerca aggiornamenti** (confronta con l'ultima release su GitHub), segnalazione problemi, finestra **Informazioni**.
 - Interfaccia in **italiano / inglese**.
 - **Sola lettura**: HybridScope non modifica nulla in AD, Exchange o Microsoft 365.
 
@@ -151,9 +156,9 @@ Al primo avvio viene creato `config.json` accanto allo script. `config.sample.js
 
    Non devi mai mappare le OU a mano: il raggruppamento è automatico e la scelta viene ricordata.
 6. Premi **Carica dati**. L'avanzamento compare nel pannello **Log**; qualche centinaio di utenti richiede pochi minuti. **Interrompi** ferma il caricamento; attende la fine della richiesta in corso.
-7. Cerca, ordina ed **esporta**.
+7. Cerca, ordina ed **esporta**. Per guardare un report salvato in precedenza usa **File > Apri report** (Ctrl+O) o trascina il file `.xlsx` / la cartella CSV sulla finestra. **Doppio clic su un utente** in qualsiasi tab (UTENTI, un gruppo, MFA, mailbox, DA_ATTENZIONARE, SYNC...) per aprire la sua scheda.
 
-La lingua si cambia dal menu in alto a destra (serve un riavvio).
+La lingua si cambia dal menu in alto a destra (serve un riavvio). **Aiuto > Cerca aggiornamenti** ti dice se è uscita una versione più recente; **Aiuto > Informazioni su HybridScope** mostra la versione e i link del progetto.
 
 ### Modalità di infrastruttura
 
@@ -183,7 +188,8 @@ Per i report pianificati (`-Auto`) la modalità si imposta con `Mode` in `config
 | **ONEDRIVE** | Account OneDrive: spazio usato, quota, file, ultima attività |
 | **MFA** | Ogni membro Entra: registrato, utilizzabile, metodo predefinito, metodi, stato per-user, SSPR, admin |
 | **LICENZE_TENANT** | Licenze acquistate / assegnate / libere / sospese per SKU |
-| **DA_ATTENZIONARE** | Lista di azioni: mailbox da migrare, licenziati senza MFA, licenziati disabilitati, account inattivi, account AD non sincronizzati |
+| **SYNC** | Controllo della sincronizzazione AD ↔ Entra ID (modalità con AD e Microsoft 365); vedi [Controllo della sincronizzazione](#controllo-della-sincronizzazione) |
+| **DA_ATTENZIONARE** | Lista di azioni: mailbox da migrare, licenziati senza MFA, licenziati disabilitati, account inattivi, account AD non sincronizzati, problemi di sincronizzazione |
 | **STORICO** | Una riga per ogni esecuzione `-Auto`, per seguire l'andamento |
 
 <details>
@@ -207,7 +213,8 @@ Per i report pianificati (`-Auto`) la modalità si imposta con `Mode` in `config
 | MFA_MetodoDefault, MFA_Metodi | Metodo MFA predefinito e tutti i metodi registrati |
 | MFA_PerUser | MFA per-user legacy: `disabled` / `enabled` / `enforced` |
 | UPN | User principal name di Microsoft 365 |
-| Origine | AD sincronizzato / Solo AD / Solo cloud / Guest |
+| Origine | AD sincronizzato / Solo AD / AD + cloud (non collegati) / Solo cloud / Guest. *Non collegati*: un account AD e un account cloud con lo stesso nome, ma Entra non sincronizza l'uno dall'altro |
+| ProblemiSync | Problemi di sincronizzazione dell'utente (dettagli nel tab SYNC) |
 | Note | Anomalie, es. "Licenziato senza MFA" o "Password senza scadenza" |
 </details>
 
@@ -216,6 +223,24 @@ Per i report pianificati (`-Auto`) la modalità si imposta con `Mode` in `config
 2. Esiste una `RemoteMailbox` su Exchange on-prem, cioè la mailbox è stata migrata: **365**
 3. Exchange Online è attivo per l'utente (Graph `provisionedPlans`) oppure l'utente compare nel report di utilizzo: **365**
 4. Nessuno dei casi precedenti: **NO MAILBOX**
+
+### Controllo della sincronizzazione
+
+Il tab SYNC confronta AD ed Entra ID come fanno Entra Connect e Cloud Sync: tramite l'**ancora di origine** (source anchor). In AD l'ancora è `ms-DS-ConsistencyGuid` (oppure `objectGUID` se è vuoto); in Entra è salvata, in base64, in `onPremisesImmutableId`. Anche negli altri tab gli utenti vengono abbinati prima per ancora e poi, in mancanza, per nome.
+
+| Categoria | Cosa significa |
+|---|---|
+| 0 - Stato della sincronizzazione | Quando è girata l'ultima sincronizzazione; segnalata se è più vecchia di `SyncStaleHours`, o se la sincronizzazione non è attiva nel tenant |
+| 1 - ImmutableId diverso dall'ancora AD | Stesso nome account, ma Entra è collegato a un altro oggetto. Di solito l'account AD è stato cancellato e ricreato |
+| 2 - Account sincronizzato non trovato in AD | Sincronizzato dal dominio / OU che leggi, ma nessun account AD ha la sua ancora |
+| 3 - Account cloud con ImmutableId residuo | Sincronizzazione disattivata per l'account ma `ImmutableId` ancora impostato: un account AD con quell'ancora lo prenderebbe in carico |
+| 4 - Farà soft-match con un account cloud | Un account AD non ancora sincronizzato e un account cloud con lo stesso UPN o SMTP primario: alla prima sincronizzazione verranno uniti |
+| 5 - In conflitto con un account cloud | Stesso UPN / SMTP, ma l'account cloud ha già un altro `ImmutableId`: la sincronizzazione fallirà con un errore di attributo duplicato |
+| 6 - Errore di provisioning in Entra | Errori che Entra segnala sull'oggetto (`proxyAddresses` duplicati, UPN...) |
+| 7 - UPN in Entra ripiegato su onmicrosoft.com | L'attributo AD che la sincronizzazione usa come UPN (`userPrincipalName`, oppure `mail` con Alternate Login ID) ha un suffisso che non è un dominio verificato, quindi l'utente ha preso `@tenant.onmicrosoft.com`. Un UPN diverso da AD ma con un dominio verificato (es. `.local` in AD, `.it` in Entra) è una configurazione normale e non viene segnalato |
+| 8 - Stessa ancora su più account AD | Oggetti copiati o ripristinati con lo stesso `ms-DS-ConsistencyGuid` |
+
+Gli account sincronizzati da un altro dominio o foresta, o da fuori `SearchBase`, non vengono segnalati come mancanti. Se la maggior parte degli account sincronizzati non corrisponde per ancora (ancora personalizzata, es. `employeeID`), le categorie 1 e 2 vengono saltate e un avviso spiega il motivo.
 
 ## Configurazione (config.json)
 
@@ -238,6 +263,7 @@ Per i report pianificati (`-Auto`) la modalità si imposta con `Mode` in `config
 | `RetentionDays` | `90` | `-Auto` cancella report e log più vecchi (0 = mai) |
 | `InactiveDays` | `90` | Soglia di inattività |
 | `PasswordAgeDays` | `365` | Soglia password vecchia |
+| `SyncStaleHours` | `3` | Tab SYNC: segnala la sincronizzazione se l'ultimo ciclo è più vecchio di così |
 | `LicenseFilter` | `All` | `All` mostra tutti gli SKU (quelli sconosciuti con il nome tecnico); `MappedOnly` mostra solo quelli in `LicenseNames` |
 | `LicenseNames` | SKU comuni | `"SKU_PART_NUMBER": "Nome leggibile"`. Aggiungi o rinomina liberamente |
 | `GroupBy` | `TopLevelOU` | `TopLevelOU`, `ParentOU`, `None` (gruppo unico) oppure `Rules` (usa `GroupRules`). Selezionabile anche dalla finestra |
@@ -279,6 +305,8 @@ HybridScope **legge e basta**. Bastano i privilegi minimi; per l'uso quotidiano 
 Permessi Microsoft Graph (delegati nell'interfaccia, applicativi per `-Auto`):
 `User.Read.All`, `AuditLog.Read.All`, `Reports.Read.All`, `UserAuthenticationMethod.Read.All`, `Organization.Read.All`, `Policy.Read.All`.
 
+L'interfaccia chiede anche `GroupMember.Read.All` e `RoleManagement.Read.Directory`, in sola lettura, usati solo dalla scheda utente per mostrare i nomi di gruppi e ruoli. Se un amministratore non ha ancora dato il consenso, **Connetti 365** si collega comunque con i permessi qui sopra e la scheda mostra solo i gruppi AD; basta un consenso da amministratore per vedere anche gruppi e ruoli Entra.
+
 ## Riga di comando (senza interfaccia)
 
 Ogni esecuzione senza finestra usa `config.json`; help completo con esempi: `Get-Help .\HybridScope.ps1 -Full`.
@@ -286,7 +314,7 @@ Ogni esecuzione senza finestra usa `config.json`; help completo con esempi: `Get
 | Parametro | Cosa fa |
 |---|---|
 | `-Auto` | Report completo per la `Mode` configurata, scritto in `OutputFolder` (più `history.csv` e `HybridScope_LATEST.xlsx`) |
-| `-Only <dataset>` | Un solo insieme di dati: `MFA`, `Licenses`, `Mailbox365`, `OneDrive` o `MailboxOnPrem`. Viene contattata solo la fonte che serve |
+| `-Only <dataset>` | Un solo insieme di dati: `MFA`, `Licenses`, `Mailbox365`, `OneDrive`, `MailboxOnPrem` o `Sync` (AD + Microsoft 365). Vengono contattate solo le fonti che servono |
 | `-PassThru` | Restituisce oggetti invece di scrivere file: le righe di `-Only`, oppure una riga unita per utente. I valori sono sempre in inglese |
 | `-Mode <modalità>` | Sostituisce `Mode` solo per questa esecuzione (`Cloud`, `FullHybrid`, `Hybrid`, `OnPrem`, `AD`) |
 | `-ConfigPath <file>` | Usa un altro file di configurazione, per esempio uno per tenant |
@@ -299,6 +327,9 @@ Accesso a Microsoft 365: con `AuthMode = Interactive` (il default) si apre una v
 
 # utenti senza MFA, direttamente in CSV
 .\HybridScope.ps1 -Only MFA -PassThru | Where-Object MFA_Registered -eq 'No' | Export-Csv .\no-mfa.csv -NoTypeInformation
+
+# cosa andrà storto alla prossima sincronizzazione AD -> Entra ID
+.\HybridScope.ps1 -Only Sync -PassThru | Where-Object Category -notlike '0 *' | Format-Table Category, Username, UPN, Details -Wrap
 
 # report completo, solo Microsoft 365, senza modificare config.json
 .\HybridScope.ps1 -Auto -Mode Cloud
@@ -391,7 +422,7 @@ Get-ChildItem C:\HybridScope -Recurse | Unblock-File
 
 **Modifica qualcosa?** No. Tutte le chiamate sono in sola lettura. L'unica eccezione è l'installazione dei moduli PowerShell mancanti, e solo se accetti.
 
-**Dove vengono inviati i miei dati?** Da nessuna parte. HybridScope comunica solo con il tuo AD, il tuo server Exchange e Microsoft Graph. I report restano sul tuo disco.
+**Dove vengono inviati i miei dati?** Da nessuna parte. HybridScope comunica solo con il tuo AD, il tuo server Exchange e Microsoft Graph. I report restano sul tuo disco. L'unica altra connessione è **Aiuto > Cerca aggiornamenti**, e solo quando lo premi: legge il numero dell'ultima release dalle API pubbliche di GitHub (`api.github.com`) e non invia nulla su di te o sul tuo tenant.
 
 **Funziona senza Microsoft 365, con solo Exchange 2016/2019 e AD?** Sì: usa la modalità **On-Prem**.
 
@@ -403,11 +434,10 @@ Get-ChildItem C:\HybridScope -Recurse | Unblock-File
 
 ## Roadmap
 
-- [ ] Panoramica cliccabile: doppio clic su un numero per aprire un tab con esattamente quegli utenti
-- [ ] Scheda utente: doppio clic su un utente per vedere insieme AD, mailbox, OneDrive, MFA e licenze
-- [ ] Mailbox condivise / sale e liste di distribuzione
-- [ ] Report HTML
-- [ ] Altre lingue (le PR sono benvenute: i testi sono in `$script:HS_Str` all'inizio di `HybridScope.ps1`)
+- [x] Scheda utente: doppio clic su un utente per vedere insieme AD, mailbox, OneDrive, MFA, licenze, gruppi e ruoli
+- [x] Controllo della sincronizzazione: ImmutableId / ancora di origine, soft-match e conflitti prima della prossima sincronizzazione
+- [ ] Mailbox condivise / sale e liste di distribuzione: condivise con accesso abilitato, licenze inutili, deleghe, liste vuote o senza proprietario
+- [ ] Riepilogo HTML dopo `-Auto`: panoramica, lista da attenzionare e andamento, da mandare via mail
 
 ## Sostieni il progetto
 

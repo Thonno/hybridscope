@@ -18,6 +18,7 @@
   "RetentionDays": 90,
   "InactiveDays": 90,
   "PasswordAgeDays": 365,
+  "SyncStaleHours": 3,
   "LicenseFilter": "All",
   "LicenseNames": {
     "O365_BUSINESS_ESSENTIALS": "Microsoft 365 Business Basic",

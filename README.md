@@ -50,19 +50,24 @@ Who is on-prem and who is already in the cloud, how much space every mailbox use
   - **Microsoft 365 (Microsoft Graph)**: licenses, last sign-in, Exchange Online mailboxes, OneDrive, MFA registration and methods, per-user MFA state, purchased and free licenses
 - **Reliable mailbox location**: `ON-PREM` / `365` / `NO MAILBOX` comes from Exchange (`Get-Mailbox`, `Get-RemoteMailbox`) and Graph (`provisionedPlans`), never from the mailbox size.
 - **Real MFA status**: whether at least one method is registered, which methods, the default one, and the legacy per-user state.
+- **User card**: double-click a user in any tab to see AD, mailbox, OneDrive, MFA, licenses and sync data in one window, together with their **groups and roles**: AD groups (direct, nested and primary) and Entra groups (Microsoft 365, security, distribution, dynamic) and Entra roles.
+- **Sync check (SYNC tab)**: compares AD and Entra ID the way Entra Connect / Cloud Sync link them, and lists what is broken or about to break: `ImmutableId` that no longer matches the AD anchor, synced accounts missing from AD, cloud accounts with a leftover `ImmutableId`, AD accounts that will soft-match or conflict with a cloud account at their first sync, provisioning errors, UPNs that fell back to `onmicrosoft.com`, and when the last sync ran.
 - **Overview** per group (OU) with totals, plus an **Attention** list:
   - on-prem mailboxes to migrate, sorted by size
   - licensed users without MFA
   - licenses assigned to disabled accounts
   - inactive accounts
   - AD accounts that are not synced
+  - sync problems
 - **Export**: formatted XLSX (all tabs) or CSV, or only the current tab with the filter applied.
+- **Open a saved report** (File > Open, Ctrl+O, or drag it onto the window): an XLSX report, a CSV export folder or a single CSV, in either language. Browse, search, re-export and open user cards without connecting to anything, e.g. the daily `HybridScope_LATEST.xlsx` on another PC.
 - **Works from a PC outside the domain**: either Windows credentials or a domain user and password entered manually, with Kerberos.
 - **Infrastructure modes**: *Full Cloud*, *Full Hybrid*, *Hybrid*, *On-Prem* or *AD*, selectable with one click. The app shows and merges only the sources you have.
 - **Grouping in tabs** chosen from the window: top-level OU, the OU that contains the user, a single list, or custom rules.
 - **Step indicators**: Connect 365 › Connect Exchange › Verify AD › Load data turn green with a ✓ when done, amber while running and red on error.
 - **Change account** button to sign out of Microsoft 365 and clear the saved sign-in, and a **Stop** button to cancel a running load.
-- **Command line**: `-Auto` for the full report, `-Only MFA` (or `Licenses`, `Mailbox365`, `OneDrive`, `MailboxOnPrem`) for a single dataset, `-PassThru` to get objects in the pipeline. Certificate-based sign-in for scheduled reports. Keeps a `HybridScope_LATEST.xlsx` copy and a history of trends (on-prem users, space, % MFA).
+- **Command line**: `-Auto` for the full report, `-Only MFA` (or `Licenses`, `Mailbox365`, `OneDrive`, `MailboxOnPrem`, `Sync`) for a single dataset, `-PassThru` to get objects in the pipeline. Certificate-based sign-in for scheduled reports. Keeps a `HybridScope_LATEST.xlsx` copy and a history of trends (on-prem users, space, % MFA).
+- **File** and **Help** menus: open a report, exports, reports folder, documentation (F1), **Check for updates** (compares with the latest GitHub release), problem reports, **About** window.
 - **English / Italian** interface.
 - **Read-only**: HybridScope never changes anything in AD, Exchange or Microsoft 365.
 
@@ -151,9 +156,9 @@ It creates `HybridScope.exe` in the main folder with [PS2EXE](https://github.com
 
    You never have to map OUs by hand: grouping is automatic, and the choice is remembered.
 6. Click **Load data**. Progress appears in the **Log** panel; a few hundred users take a few minutes. **Stop** cancels the load; it waits for the current request to finish.
-7. Search, sort, and **export**.
+7. Search, sort, and **export**. To look at a report saved earlier, use **File > Open report** (Ctrl+O) or drag the `.xlsx` / CSV folder onto the window. **Double-click a user** in any tab (USERS, a group, MFA, mailboxes, ATTENTION, SYNC...) to open their card.
 
-The language can be switched from the top-right menu (restart required).
+The language can be switched from the top-right menu (restart required). **Help > Check for updates** tells you whether a newer release is out; **Help > About** shows the version and the project links.
 
 ### Infrastructure modes
 
@@ -183,7 +188,8 @@ For scheduled reports (`-Auto`) the mode comes from `Mode` in `config.json`.
 | **ONEDRIVE** | OneDrive accounts: used space, quota, files, last activity |
 | **MFA** | Every Entra member: registered, capable, default method, methods, per-user state, SSPR, admin |
 | **TENANT_LICENSES** | Purchased / assigned / available / suspended per SKU |
-| **ATTENTION** | Action list: mailboxes to migrate, licensed without MFA, licensed but disabled, inactive accounts, AD accounts not synced |
+| **SYNC** | AD ↔ Entra ID sync check (modes with both AD and Microsoft 365); see [Sync check](#sync-check) |
+| **ATTENTION** | Action list: mailboxes to migrate, licensed without MFA, licensed but disabled, inactive accounts, AD accounts not synced, sync problems |
 | **HISTORY** | One row per `-Auto` run, to follow the trends |
 
 <details>
@@ -207,7 +213,8 @@ For scheduled reports (`-Auto`) the mode comes from `Mode` in `config.json`.
 | MFA_DefaultMethod, MFA_Methods | Default MFA method and all registered methods |
 | MFA_PerUser | Legacy per-user MFA: `disabled` / `enabled` / `enforced` |
 | UPN | Microsoft 365 user principal name |
-| Origin | AD synced / AD only / Cloud only / Guest |
+| Origin | AD synced / AD only / AD + cloud (not linked) / Cloud only / Guest. *Not linked*: an AD account and a cloud account with the same name, but Entra does not sync one from the other |
+| SyncIssues | Sync problems of this user (details in the SYNC tab) |
 | Notes | Anomalies, e.g. "Licensed without MFA" or "Password never expires" |
 </details>
 
@@ -216,6 +223,24 @@ For scheduled reports (`-Auto`) the mode comes from `Mode` in `config.json`.
 2. A `RemoteMailbox` exists on Exchange on-prem, i.e. the mailbox was migrated: **365**
 3. Exchange Online is provisioned for the user (Graph `provisionedPlans`) or the user appears in the usage report: **365**
 4. None of the above: **NO MAILBOX**
+
+### Sync check
+
+The SYNC tab compares AD with Entra ID the way Entra Connect and Cloud Sync do: through the **source anchor**. In AD the anchor is `ms-DS-ConsistencyGuid` (or `objectGUID` when it is empty); in Entra it is stored, base64-encoded, in `onPremisesImmutableId`. Users are also paired by anchor in the other tabs, with names as a fallback.
+
+| Category | What it means |
+|---|---|
+| 0 - Directory sync status | When the last sync ran; flagged when it is older than `SyncStaleHours`, or when sync is not enabled in the tenant |
+| 1 - ImmutableId differs from the AD anchor | Same account name, but Entra is linked to another object. Usually the AD account was deleted and recreated |
+| 2 - Synced account not found in AD | Synced from the domain / OU you read, but no AD account has its anchor |
+| 3 - Cloud account with a leftover ImmutableId | Sync is off for the account but the `ImmutableId` is still set: an AD account with that anchor would take it over |
+| 4 - Will soft-match a cloud account | An AD account not yet synced and a cloud account with the same UPN or primary SMTP: they will be merged at the first sync |
+| 5 - Conflicts with a cloud account | Same UPN / SMTP, but the cloud account already has another `ImmutableId`: sync will fail with a duplicate attribute error |
+| 6 - Provisioning error in Entra | Errors Entra reports on the object (duplicate `proxyAddresses`, UPN...) |
+| 7 - Entra UPN fell back to onmicrosoft.com | The AD attribute the sync uses as UPN (`userPrincipalName`, or `mail` with Alternate Login ID) has a suffix that is not a verified domain, so the user got `@tenant.onmicrosoft.com`. A UPN that differs from AD but uses a verified domain (e.g. `.local` in AD, `.com` in Entra) is a normal setup and is not flagged |
+| 8 - Same anchor on more than one AD account | Copied or restored objects with the same `ms-DS-ConsistencyGuid` |
+
+Accounts synced from another domain or forest, or from outside `SearchBase`, are not reported as missing. If most synced accounts do not match by anchor (a custom source anchor such as `employeeID`), categories 1 and 2 are skipped and a warning explains why.
 
 ## Configuration (config.json)
 
@@ -238,6 +263,7 @@ For scheduled reports (`-Auto`) the mode comes from `Mode` in `config.json`.
 | `RetentionDays` | `90` | `-Auto` deletes older reports and logs (0 = never) |
 | `InactiveDays` | `90` | Inactivity threshold |
 | `PasswordAgeDays` | `365` | Old password threshold |
+| `SyncStaleHours` | `3` | SYNC tab: flag the directory sync when the last cycle is older than this |
 | `LicenseFilter` | `All` | `All` shows every SKU (unknown ones with the raw name); `MappedOnly` shows only SKUs listed in `LicenseNames` |
 | `LicenseNames` | common SKUs | `"SKU_PART_NUMBER": "Friendly name"`. Add or rename freely |
 | `GroupBy` | `TopLevelOU` | `TopLevelOU`, `ParentOU`, `None` (single group) or `Rules` (uses `GroupRules`). Also selectable in the GUI |
@@ -278,6 +304,8 @@ HybridScope only **reads**. Least privilege is enough; you do not need Domain Ad
 Microsoft Graph permissions (delegated in the GUI, application for `-Auto`):
 `User.Read.All`, `AuditLog.Read.All`, `Reports.Read.All`, `UserAuthenticationMethod.Read.All`, `Organization.Read.All`, `Policy.Read.All`.
 
+The GUI also asks for `GroupMember.Read.All` and `RoleManagement.Read.Directory`, read-only, used only by the user card to show group and role names. If an administrator has not consented to them yet, **Connect 365** still connects with the permissions above and the card shows AD groups only; consent once as an administrator to get Entra groups and roles too.
+
 ## Command line (no GUI)
 
 Every run without the window uses `config.json`; full help with examples: `Get-Help .\HybridScope.ps1 -Full`.
@@ -285,7 +313,7 @@ Every run without the window uses `config.json`; full help with examples: `Get-H
 | Parameter | What it does |
 |---|---|
 | `-Auto` | Full report for the configured `Mode`, written to `OutputFolder` (plus `history.csv` and `HybridScope_LATEST.xlsx`) |
-| `-Only <dataset>` | Just one dataset: `MFA`, `Licenses`, `Mailbox365`, `OneDrive` or `MailboxOnPrem`. Only the source it needs is contacted |
+| `-Only <dataset>` | Just one dataset: `MFA`, `Licenses`, `Mailbox365`, `OneDrive`, `MailboxOnPrem` or `Sync` (AD + Microsoft 365). Only the sources it needs are contacted |
 | `-PassThru` | Returns objects instead of writing files: the `-Only` rows, or one merged row per user. Values are always in English |
 | `-Mode <mode>` | Overrides `Mode` for this run (`Cloud`, `FullHybrid`, `Hybrid`, `OnPrem`, `AD`) |
 | `-ConfigPath <file>` | Uses another configuration file, e.g. one per tenant |
@@ -298,6 +326,9 @@ Microsoft 365 sign-in: with `AuthMode = Interactive` (default) a browser prompt 
 
 # users without MFA, straight to CSV
 .\HybridScope.ps1 -Only MFA -PassThru | Where-Object MFA_Registered -eq 'No' | Export-Csv .\no-mfa.csv -NoTypeInformation
+
+# what will go wrong at the next AD -> Entra ID sync
+.\HybridScope.ps1 -Only Sync -PassThru | Where-Object Category -notlike '0 *' | Format-Table Category, Username, UPN, Details -Wrap
 
 # full report, Microsoft 365 only, without editing config.json
 .\HybridScope.ps1 -Auto -Mode Cloud
@@ -390,7 +421,7 @@ Get-ChildItem C:\HybridScope -Recurse | Unblock-File
 
 **Does it change anything?** No. Every call is read-only. The only exception is installing missing PowerShell modules, and only if you agree.
 
-**Where is my data sent?** Nowhere. HybridScope talks only to your AD, your Exchange server and Microsoft Graph. Reports stay on your disk.
+**Where is my data sent?** Nowhere. HybridScope talks only to your AD, your Exchange server and Microsoft Graph. Reports stay on your disk. The only other connection is **Help > Check for updates**, and only when you click it: it reads the latest release number from the public GitHub API (`api.github.com`) and sends nothing about you or your tenant.
 
 **Does it work without Microsoft 365, with only Exchange 2016/2019 and AD?** Yes: use **On-Prem** mode.
 
@@ -402,11 +433,10 @@ Get-ChildItem C:\HybridScope -Recurse | Unblock-File
 
 ## Roadmap
 
-- [ ] Clickable overview: double-click a number to open a tab with exactly those users
-- [ ] User card: double-click a user to see AD, mailbox, OneDrive, MFA and licenses together
-- [ ] Shared / room mailboxes and distribution groups
-- [ ] HTML report
-- [ ] More languages (PRs welcome: the strings live in `$script:HS_Str` at the top of `HybridScope.ps1`)
+- [x] User card: double-click a user to see AD, mailbox, OneDrive, MFA, licenses, groups and roles together
+- [x] Sync check: ImmutableId / source anchor, soft-match and conflicts before the next sync
+- [ ] Shared / room mailboxes and distribution lists: signed-in shared mailboxes, unneeded licenses, delegations, empty or ownerless lists
+- [ ] HTML summary after `-Auto`: overview, attention list and trends, to send by e-mail
 
 ## Support the project
 

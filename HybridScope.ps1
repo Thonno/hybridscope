@@ -19,7 +19,7 @@
 
       One dataset        -Only <name>. No window: collects just that dataset and writes
                          HybridScope_<name>_<timestamp>.xlsx, or returns it with -PassThru.
-                         <name>: MFA, Licenses, Mailbox365, OneDrive, MailboxOnPrem
+                         <name>: MFA, Licenses, Mailbox365, OneDrive, MailboxOnPrem, Sync
                          (details: Get-Help .\HybridScope.ps1 -Parameter Only)
 
       Pipeline           -PassThru. Returns objects instead of writing files: the rows of the -Only
@@ -51,6 +51,9 @@
       Mailbox365     Exchange Online mailbox sizes (Microsoft usage report)
       OneDrive       OneDrive usage per account
       MailboxOnPrem  Exchange on-premises mailboxes and sizes (needs ExchangeServer in config.json)
+      Sync           AD <-> Entra ID sync check: directory sync status, ImmutableId vs AD anchor
+                     (ms-DS-ConsistencyGuid / objectGUID), accounts that will soft-match or conflict at
+                     the next sync, provisioning errors, UPN differences (needs DomainFqdn in config.json)
     Only the source that dataset needs is contacted: -Only MFA does not touch AD or Exchange.
 
 .PARAMETER PassThru
@@ -91,6 +94,12 @@
     Reuses your own Graph connection (it stays open afterwards) and keeps the result in a variable.
 
 .EXAMPLE
+    .\HybridScope.ps1 -Only Sync -PassThru | Where-Object Category -notlike '0 *' | Format-Table Category, Username, UPN, Details -Wrap
+
+    What will go wrong at the next AD -> Entra ID sync: anchors that do not match, accounts that will
+    soft-match or conflict, provisioning errors. Reads AD with the current Windows account.
+
+.EXAMPLE
     .\HybridScope.ps1 -Auto
 
     Full report without the GUI, using Mode and the other settings in config.json.
@@ -126,7 +135,9 @@
                    RemotePowerShellEnabled. Microsoft 365 - Global Reader + one-time admin consent to
                    User.Read.All, AuditLog.Read.All, Reports.Read.All, UserAuthenticationMethod.Read.All,
                    Organization.Read.All, Policy.Read.All (delegated when signing in, application
-                   permissions with a certificate).
+                   permissions with a certificate). The GUI also asks for GroupMember.Read.All and
+                   RoleManagement.Read.Directory, used only by the user card (groups and Entra roles);
+                   without consent to them it connects anyway and the card shows no Entra groups.
     Last sign-in and the MFA registration report need Entra ID P1; without it MFA methods are read
     user by user (slower) and a warning is logged.
 
@@ -136,7 +147,7 @@
 param(
     [switch]$Auto,
 
-    [ValidateSet('MFA', 'Licenses', 'Mailbox365', 'OneDrive', 'MailboxOnPrem')]
+    [ValidateSet('MFA', 'Licenses', 'Mailbox365', 'OneDrive', 'MailboxOnPrem', 'Sync')]
     [string]$Only,
 
     [switch]$PassThru,
@@ -147,7 +158,18 @@ param(
     [string]$ConfigPath
 )
 
-$HS_Version = '1.4.0'
+$HS_Version = '1.5.0'
+$HS_Author = 'Thonno'
+$HS_Repo = 'Thonno/hybridscope'
+$HS_Links = @{
+    Repo     = "https://github.com/$HS_Repo"
+    Author   = "https://github.com/$HS_Author"
+    Releases = "https://github.com/$HS_Repo/releases/latest"
+    Issues   = "https://github.com/$HS_Repo/issues/new"
+    License  = "https://github.com/$HS_Repo/blob/main/LICENSE"
+    Sponsor  = "https://github.com/sponsors/$HS_Author"
+    Coffee   = 'https://buymeacoffee.com/aascione956'
+}
 
 # Folder of the script / exe (PS2EXE does not set $PSScriptRoot)
 $AppDir = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent ([Environment]::GetCommandLineArgs()[0]) }
@@ -204,7 +226,7 @@ $Core = {
             'st.connecting'     = 'Connecting...'
             'st.verifying'      = 'Verifying...'
             'st.error'          = 'Error'
-            'st.loaded'         = 'Loaded {0} users'
+            'st.loaded'         = 'Loaded {0} users - double-click a user to open their card'
             'st.exported'       = 'Exported {0} rows to {1}'
             'job.init'          = 'Initializing...'
             'job.365'           = 'Connecting to Microsoft 365...'
@@ -303,6 +325,107 @@ $Core = {
             'warn.latestLocked' = 'HybridScope_LATEST.xlsx not updated (is it open in Excel?)'
             'err.generic'       = 'ERROR: {0}'
             'warn.noRows'       = 'No data returned for {0}: no file written'
+            'warn.scopes'       = 'Sign-in with the group permissions (GroupMember.Read.All, RoleManagement.Read.Directory) failed, connected without them: user cards will not show Entra groups and roles until an administrator consents once ({0})'
+            'warn.adConsistency' = 'ms-DS-ConsistencyGuid not readable, objectGUID used as the sync anchor ({0})'
+            'warn.org'          = 'Tenant directory sync status not readable: {0}'
+            'warn.syncAnchor'   = 'Only {0} of {1} synced Entra accounts match an AD account by anchor: the source anchor is probably a custom attribute or another forest is synced. Anchor checks (SYNC categories 1, 2) skipped.'
+            'warn.syncStale'    = 'Directory sync: last cycle {0} ago (threshold {1} h)'
+            'log.syncStart'     = 'Checking AD <-> Entra ID sync...'
+            'log.sync'          = 'Sync checks: {0} findings ({1} s)'
+            'warn.sync'         = 'Sync checks skipped: {0}'
+            'err.noDomain'      = 'Active Directory domain not configured (DomainFqdn in config.json).'
+
+            'sync.c0'           = '0 - Directory sync status'
+            'sync.c1'           = '1 - ImmutableId differs from the AD anchor'
+            'sync.c2'           = '2 - Synced account not found in AD'
+            'sync.c3'           = '3 - Cloud account with a leftover ImmutableId'
+            'sync.c4'           = '4 - Will soft-match a cloud account'
+            'sync.c5'           = '5 - Conflicts with a cloud account (different ImmutableId)'
+            'sync.c6'           = '6 - Provisioning error in Entra'
+            'sync.c7'           = '7 - Entra UPN fell back to onmicrosoft.com'
+            'sync.c8'           = '8 - Same anchor on more than one AD account'
+            'sync.d.last'       = 'Last sync {0} ({1} ago)'
+            'sync.d.stale'      = 'NOT SYNCING: last sync {0} ({1} ago, threshold {2} h). Check the Entra Connect / Cloud Sync server.'
+            'sync.d.off'        = 'Directory sync is not enabled in this tenant'
+            'sync.d.mismatch'   = 'AD anchor {0} ({1}), Entra ImmutableId {2}. Usually the AD account was deleted and recreated: Entra is still linked to the old object.'
+            'sync.d.notInAd'    = 'Entra is linked to {0}, but no AD account has ImmutableId {1}: deleted or recreated in AD, or sync not running.'
+            'sync.d.leftover'   = 'Sync is off for this account but ImmutableId {0} is still set: an AD account with this anchor would take it over (hard match).'
+            'sync.d.leftoverAd' = 'Sync is off for this account but its ImmutableId belongs to AD account {0}: it will be taken over if {0} comes back into sync scope.'
+            'sync.d.soft'       = 'Cloud account {0} has the same {1}: at the first sync of this AD account the two will be merged (soft match), unless soft match is blocked in the tenant.'
+            'sync.d.conflict'   = 'Cloud account {0} has the same {1} but ImmutableId {2} (AD anchor {3}): sync will fail with a duplicate attribute error.'
+            'sync.d.prov'       = '{0} = {1} ({2}, {3})'
+            'sync.d.upn'        = 'Entra: {0} - AD userPrincipalName: {1}, mail: {2}. The attribute the sync uses as UPN has a suffix that is not a verified domain in the tenant.'
+            'sync.d.upnSuffix'  = 'Not verified: {0}'
+            'sync.d.dup'        = 'Anchor {0} also on: {1}'
+
+            'menu.open'         = '_Open report...'
+            'dlg.open'          = 'HybridScope report (*.xlsx;*.csv)|*.xlsx;*.csv|All files (*.*)|*.*'
+            'job.import'        = 'Opening report...'
+            'log.import'        = 'Opening report {0}'
+            'log.importSheet'   = '  {0} ({1} rows)'
+            'st.imported'       = 'Report opened: {0} users - double-click a user to open their card'
+            'lbl.imported'      = 'Report of {0}  ·  {1}'
+            'title.import'      = 'Open report'
+            'err.importEmpty'   = 'No HybridScope tables found in {0}.'
+            'card.imported'     = 'Groups and roles are read live from AD and Microsoft 365: not available for an imported report.'
+            'menu.file'         = '_File'
+            'menu.exit'         = 'E_xit'
+            'menu.help'         = '_Help'
+            'menu.docs'         = 'Documentation (GitHub)'
+            'menu.updates'      = 'Check for updates...'
+            'menu.issue'        = 'Report a problem or suggest an idea'
+            'menu.sponsor'      = 'Sponsor on GitHub'
+            'menu.coffee'       = 'Buy me a coffee'
+            'menu.about'        = 'About HybridScope'
+            'upd.checking'      = 'Checking for updates...'
+            'upd.new'           = "HybridScope {0} is available (you have {1}).`n`nOpen the download page?"
+            'upd.latest'        = 'You have the latest version ({0}).'
+            'upd.ahead'         = 'This version ({0}) is newer than the latest release ({1}).'
+            'upd.error'         = "Could not check for updates:`n{0}`n`nYou can check the releases page on GitHub."
+            'title.updates'     = 'Updates'
+            'about.title'       = 'About HybridScope'
+            'about.version'     = 'Version {0}'
+            'about.desc'        = 'Read-only inventory of hybrid identities and mailboxes.'
+            'about.by'          = 'Made by'
+            'about.project'     = 'Project'
+            'about.licenseLbl'  = 'License'
+            'about.license'     = 'MIT - free to use, modify and share'
+            'about.feedback'    = 'Feedback'
+            'about.support'     = 'If HybridScope saves you time, you can support its development:'
+            'about.star'        = 'Star on GitHub'
+            'about.disclaimer'  = 'Independent project, not affiliated with or endorsed by Microsoft.'
+            'about.close'       = 'Close'
+            'status.by'         = 'by'
+            'card.copy'         = 'Copy'
+            'card.reload'       = 'Reload'
+            'card.search'       = 'Search:'
+            'card.groups'       = 'Groups and roles'
+            'card.loading'      = 'Loading groups and roles...'
+            'card.busy'         = 'Another operation is running: click Reload when it has finished.'
+            'card.count'        = '{0} AD groups  ·  {1} Entra groups  ·  {2} Entra roles'
+            'card.notFound'     = 'User not found in the loaded data.'
+            'card.sec.identity' = 'Identity'
+            'card.sec.ad'       = 'Active Directory'
+            'card.sec.m365'     = 'Microsoft 365'
+            'card.sec.mailbox'  = 'Mailbox'
+            'card.sec.onedrive' = 'OneDrive'
+            'card.sec.mfa'      = 'MFA'
+            'card.sec.sync'     = 'Sync'
+            'card.sec.notes'    = 'Notes'
+            'card.direct'       = 'Direct'
+            'card.primary'      = 'Direct (primary group)'
+            'card.inherited'    = 'Inherited (nested)'
+            'card.type.security' = 'Security'
+            'card.type.distribution' = 'Distribution'
+            'card.type.m365'    = 'Microsoft 365'
+            'card.type.mailSec' = 'Mail-enabled security'
+            'card.type.dl'      = 'Distribution list'
+            'card.type.dynamic' = '{0} (dynamic)'
+            'card.type.role'    = 'Entra role'
+            'card.type.au'      = 'Administrative unit'
+            'card.err.ad'       = 'AD groups not readable: {0}'
+            'card.err.graph'    = 'Entra groups not readable: {0}'
+            'card.err.perm'     = 'Some Entra groups or roles have no name: the {0} permission is missing. An administrator must consent to it once (Change account, then Connect 365 as an admin).'
 
             'val.enabled'       = 'Enabled'
             'val.disabled'      = 'Disabled'
@@ -316,6 +439,7 @@ $Core = {
             'val.originAD'      = 'AD only'
             'val.originCloud'   = 'Cloud only'
             'val.originGuest'   = 'Guest'
+            'val.originUnlinked' = 'AD + cloud (not linked)'
             'src.getMailbox'    = 'Exchange on-prem (Get-Mailbox)'
             'src.remote'        = 'Exchange on-prem (RemoteMailbox)'
             'src.graphPlan'     = 'Graph (Exchange Online enabled)'
@@ -336,6 +460,7 @@ $Core = {
             'att.c4'            = '4 - Licensed, no 365 sign-in for >{0} days'
             'att.c5'            = '5 - Enabled, no AD logon for >{0} days'
             'att.c6'            = '6 - AD account not synced'
+            'att.c7'            = '7 - Sync problem (see SYNC)'
 
             'm.sec.users'       = 'USERS'
             'm.total'           = 'Total users'
@@ -343,6 +468,8 @@ $Core = {
             'm.disabled'        = 'Disabled'
             'm.adOnly'          = 'AD only (not synced)'
             'm.cloudOnly'       = 'Cloud only'
+            'm.unlinked'        = 'AD + cloud account, not linked'
+            'm.syncIssues'      = 'With sync problems'
             'm.sec.location'    = 'MAILBOX LOCATION'
             'm.loc'             = 'Users {0}'
             'm.sec.space'       = 'SPACE (GB)'
@@ -376,6 +503,7 @@ $Core = {
             'tab.mfa'           = 'MFA'
             'tab.licenses'      = 'TENANT_LICENSES'
             'tab.attention'     = 'ATTENTION'
+            'tab.sync'          = 'SYNC'
             'tab.history'       = 'HISTORY'
             'grp.other'         = 'OTHER'
             'grp.cloud'         = 'CLOUD_ONLY'
@@ -424,7 +552,7 @@ $Core = {
             'st.connecting'     = 'Connessione...'
             'st.verifying'      = 'Verifica...'
             'st.error'          = 'Errore'
-            'st.loaded'         = 'Caricati {0} utenti'
+            'st.loaded'         = 'Caricati {0} utenti - doppio clic su un utente per aprire la scheda'
             'st.exported'       = 'Esportate {0} righe in {1}'
             'job.init'          = 'Inizializzazione...'
             'job.365'           = 'Connessione a Microsoft 365...'
@@ -523,6 +651,107 @@ $Core = {
             'warn.latestLocked' = 'HybridScope_LATEST.xlsx non aggiornato (è aperto in Excel?)'
             'err.generic'       = 'ERRORE: {0}'
             'warn.noRows'       = 'Nessun dato restituito per {0}: nessun file scritto'
+            'warn.scopes'       = "Accesso con i permessi sui gruppi (GroupMember.Read.All, RoleManagement.Read.Directory) non riuscito, connesso senza: la scheda utente non mostrerà gruppi e ruoli Entra finché un amministratore non dà il consenso una volta ({0})"
+            'warn.adConsistency' = "ms-DS-ConsistencyGuid non leggibile, uso objectGUID come ancora di sincronizzazione ({0})"
+            'warn.org'          = 'Stato della sincronizzazione del tenant non leggibile: {0}'
+            'warn.syncAnchor'   = "Solo {0} account Entra sincronizzati su {1} corrispondono a un account AD tramite l'ancora: probabilmente l'ancora è un attributo personalizzato o viene sincronizzata un'altra foresta. Controlli sull'ancora (categorie SYNC 1, 2) saltati."
+            'warn.syncStale'    = 'Sincronizzazione directory: ultimo ciclo {0} fa (soglia {1} h)'
+            'log.syncStart'     = 'Controllo sincronizzazione AD <-> Entra ID...'
+            'log.sync'          = 'Controlli di sincronizzazione: {0} segnalazioni ({1} s)'
+            'warn.sync'         = 'Controlli di sincronizzazione saltati: {0}'
+            'err.noDomain'      = 'Dominio Active Directory non configurato (DomainFqdn in config.json).'
+
+            'sync.c0'           = '0 - Stato della sincronizzazione'
+            'sync.c1'           = "1 - ImmutableId diverso dall'ancora AD"
+            'sync.c2'           = '2 - Account sincronizzato non trovato in AD'
+            'sync.c3'           = '3 - Account cloud con ImmutableId residuo'
+            'sync.c4'           = '4 - Farà soft-match con un account cloud'
+            'sync.c5'           = '5 - In conflitto con un account cloud (ImmutableId diverso)'
+            'sync.c6'           = '6 - Errore di provisioning in Entra'
+            'sync.c7'           = '7 - UPN in Entra ripiegato su onmicrosoft.com'
+            'sync.c8'           = '8 - Stessa ancora su più account AD'
+            'sync.d.last'       = 'Ultima sincronizzazione {0} ({1} fa)'
+            'sync.d.stale'      = 'NON SINCRONIZZA: ultima sincronizzazione {0} ({1} fa, soglia {2} h). Controlla il server Entra Connect / Cloud Sync.'
+            'sync.d.off'        = 'La sincronizzazione della directory non è attiva in questo tenant'
+            'sync.d.mismatch'   = "Ancora AD {0} ({1}), ImmutableId in Entra {2}. Di solito l'account AD è stato cancellato e ricreato: Entra è ancora collegato al vecchio oggetto."
+            'sync.d.notInAd'    = 'Entra è collegato a {0}, ma nessun account AD ha ImmutableId {1}: cancellato o ricreato in AD, oppure la sincronizzazione non gira.'
+            'sync.d.leftover'   = "Sincronizzazione disattivata per questo account ma ImmutableId {0} è ancora impostato: un account AD con questa ancora lo prenderebbe in carico (hard match)."
+            'sync.d.leftoverAd' = "Sincronizzazione disattivata per questo account ma il suo ImmutableId appartiene all'account AD {0}: verrà ripreso se {0} torna nell'ambito della sincronizzazione."
+            'sync.d.soft'       = "L'account cloud {0} ha lo stesso {1}: alla prima sincronizzazione di questo account AD i due verranno uniti (soft match), salvo che il soft match sia bloccato nel tenant."
+            'sync.d.conflict'   = "L'account cloud {0} ha lo stesso {1} ma ImmutableId {2} (ancora AD {3}): la sincronizzazione fallirà con un errore di attributo duplicato."
+            'sync.d.prov'       = '{0} = {1} ({2}, {3})'
+            'sync.d.upn'        = "Entra: {0} - AD userPrincipalName: {1}, mail: {2}. L'attributo che la sincronizzazione usa come UPN ha un suffisso che non è un dominio verificato nel tenant."
+            'sync.d.upnSuffix'  = 'Non verificati: {0}'
+            'sync.d.dup'        = 'Ancora {0} presente anche su: {1}'
+
+            'menu.open'         = '_Apri report...'
+            'dlg.open'          = 'Report HybridScope (*.xlsx;*.csv)|*.xlsx;*.csv|Tutti i file (*.*)|*.*'
+            'job.import'        = 'Apertura report...'
+            'log.import'        = 'Apertura report {0}'
+            'log.importSheet'   = '  {0} ({1} righe)'
+            'st.imported'       = 'Report aperto: {0} utenti - doppio clic su un utente per aprire la scheda'
+            'lbl.imported'      = 'Report del {0}  ·  {1}'
+            'title.import'      = 'Apri report'
+            'err.importEmpty'   = 'Nessuna tabella HybridScope trovata in {0}.'
+            'card.imported'     = 'Gruppi e ruoli vengono letti dal vivo da AD e Microsoft 365: non disponibili per un report importato.'
+            'menu.file'         = '_File'
+            'menu.exit'         = '_Esci'
+            'menu.help'         = '_Aiuto'
+            'menu.docs'         = 'Documentazione (GitHub)'
+            'menu.updates'      = 'Cerca aggiornamenti...'
+            'menu.issue'        = "Segnala un problema o proponi un'idea"
+            'menu.sponsor'      = 'Sponsorizza su GitHub'
+            'menu.coffee'       = 'Offrimi un caffè'
+            'menu.about'        = 'Informazioni su HybridScope'
+            'upd.checking'      = 'Ricerca aggiornamenti...'
+            'upd.new'           = "È disponibile HybridScope {0} (tu hai la {1}).`n`nAprire la pagina di download?"
+            'upd.latest'        = 'Hai già la versione più recente ({0}).'
+            'upd.ahead'         = "Questa versione ({0}) è più recente dell'ultima release ({1})."
+            'upd.error'         = "Impossibile cercare aggiornamenti:`n{0}`n`nPuoi controllare la pagina delle release su GitHub."
+            'title.updates'     = 'Aggiornamenti'
+            'about.title'       = 'Informazioni su HybridScope'
+            'about.version'     = 'Versione {0}'
+            'about.desc'        = 'Inventario in sola lettura di identità e mailbox ibride.'
+            'about.by'          = 'Creato da'
+            'about.project'     = 'Progetto'
+            'about.licenseLbl'  = 'Licenza'
+            'about.license'     = 'MIT - libero da usare, modificare e condividere'
+            'about.feedback'    = 'Feedback'
+            'about.support'     = 'Se HybridScope ti fa risparmiare tempo, puoi sostenerne lo sviluppo:'
+            'about.star'        = 'Metti una stella su GitHub'
+            'about.disclaimer'  = 'Progetto indipendente, non affiliato né approvato da Microsoft.'
+            'about.close'       = 'Chiudi'
+            'status.by'         = 'di'
+            'card.copy'         = 'Copia'
+            'card.reload'       = 'Ricarica'
+            'card.search'       = 'Cerca:'
+            'card.groups'       = 'Gruppi e ruoli'
+            'card.loading'      = 'Caricamento gruppi e ruoli...'
+            'card.busy'         = "C'è un'altra operazione in corso: premi Ricarica quando è finita."
+            'card.count'        = '{0} gruppi AD  ·  {1} gruppi Entra  ·  {2} ruoli Entra'
+            'card.notFound'     = 'Utente non trovato nei dati caricati.'
+            'card.sec.identity' = 'Identità'
+            'card.sec.ad'       = 'Active Directory'
+            'card.sec.m365'     = 'Microsoft 365'
+            'card.sec.mailbox'  = 'Mailbox'
+            'card.sec.onedrive' = 'OneDrive'
+            'card.sec.mfa'      = 'MFA'
+            'card.sec.sync'     = 'Sincronizzazione'
+            'card.sec.notes'    = 'Note'
+            'card.direct'       = 'Diretta'
+            'card.primary'      = 'Diretta (gruppo primario)'
+            'card.inherited'    = 'Ereditata (annidata)'
+            'card.type.security' = 'Sicurezza'
+            'card.type.distribution' = 'Distribuzione'
+            'card.type.m365'    = 'Microsoft 365'
+            'card.type.mailSec' = 'Sicurezza abilitata alla posta'
+            'card.type.dl'      = 'Lista di distribuzione'
+            'card.type.dynamic' = '{0} (dinamico)'
+            'card.type.role'    = 'Ruolo Entra'
+            'card.type.au'      = 'Unità amministrativa'
+            'card.err.ad'       = 'Gruppi AD non leggibili: {0}'
+            'card.err.graph'    = 'Gruppi Entra non leggibili: {0}'
+            'card.err.perm'     = 'Alcuni gruppi o ruoli Entra sono senza nome: manca il permesso {0}. Un amministratore deve dare il consenso una volta (Cambia account, poi Connetti 365 come amministratore).'
 
             'val.enabled'       = 'Abilitato'
             'val.disabled'      = 'Disabilitato'
@@ -536,6 +765,7 @@ $Core = {
             'val.originAD'      = 'Solo AD'
             'val.originCloud'   = 'Solo cloud'
             'val.originGuest'   = 'Guest'
+            'val.originUnlinked' = 'AD + cloud (non collegati)'
             'src.getMailbox'    = 'Exchange on-prem (Get-Mailbox)'
             'src.remote'        = 'Exchange on-prem (RemoteMailbox)'
             'src.graphPlan'     = 'Graph (Exchange Online attivo)'
@@ -556,6 +786,7 @@ $Core = {
             'att.c4'            = '4 - Licenziato inattivo su 365 da >{0} giorni'
             'att.c5'            = '5 - Abilitato inattivo in AD da >{0} giorni'
             'att.c6'            = '6 - Account AD non sincronizzato'
+            'att.c7'            = '7 - Problema di sincronizzazione (vedi SYNC)'
 
             'm.sec.users'       = 'UTENTI'
             'm.total'           = 'Utenti totali'
@@ -563,6 +794,8 @@ $Core = {
             'm.disabled'        = 'Disabilitati'
             'm.adOnly'          = 'Solo AD (non sincronizzati)'
             'm.cloudOnly'       = 'Solo cloud'
+            'm.unlinked'        = 'AD + account cloud, non collegati'
+            'm.syncIssues'      = 'Con problemi di sincronizzazione'
             'm.sec.location'    = 'POSIZIONE MAILBOX'
             'm.loc'             = 'Utenti {0}'
             'm.sec.space'       = 'SPAZIO (GB)'
@@ -596,6 +829,7 @@ $Core = {
             'tab.mfa'           = 'MFA'
             'tab.licenses'      = 'LICENZE_TENANT'
             'tab.attention'     = 'DA_ATTENZIONARE'
+            'tab.sync'          = 'SYNC'
             'tab.history'       = 'STORICO'
             'grp.other'         = 'ALTRI'
             'grp.cloud'         = 'SOLO_CLOUD'
@@ -623,6 +857,8 @@ $Core = {
             Assigned = 'Assegnate'; Available = 'Libere'; Suspended = 'Sospese'; Warning = 'InScadenza'; Category = 'Categoria'
             Details = 'Dettaglio'; Date = 'Data'; Users = 'Utenti'; OnPrem = 'OnPrem'; On365 = 'Su365'
             OnPremSpace_GB = 'SpazioOnPrem_GB'; Space365_GB = 'Spazio365_GB'; MFA_Percent = 'MFA_Percentuale'; LicensedWithoutMFA = 'LicenziatiSenzaMFA'
+            SyncIssues = 'ProblemiSync'; Anchor_AD = 'Ancora_AD'; AnchorSource = 'FonteAncora'; SyncEnabled = 'SyncAttivo'; LastSync = 'UltimoSync'
+            Source = 'Fonte'; Membership = 'Appartenenza'
         }
     }
 
@@ -680,6 +916,7 @@ $Core = {
             RetentionDays          = 90
             InactiveDays           = 90
             PasswordAgeDays        = 365
+            SyncStaleHours         = 3
             LicenseFilter          = 'All'
             LicenseNames           = [ordered]@{
                 O365_BUSINESS_ESSENTIALS = 'Microsoft 365 Business Basic'
@@ -847,6 +1084,9 @@ $Core = {
         param($Cfg, [switch]$Unattended)
         Import-Module Microsoft.Graph.Authentication -ErrorAction Stop
         $scopes = 'User.Read.All', 'AuditLog.Read.All', 'Reports.Read.All', 'UserAuthenticationMethod.Read.All', 'Organization.Read.All', 'Policy.Read.All'
+        # Group names and Entra roles for the user card. Asked for separately so a tenant where an admin
+        # has not consented to them yet still connects with the base permissions.
+        $cardScopes = 'GroupMember.Read.All', 'RoleManagement.Read.Directory'
         $connectParams = @{ NoWelcome = $true }
         if ($Cfg.TenantId) { $connectParams.TenantId = $Cfg.TenantId }
         if ($Unattended) {
@@ -855,11 +1095,18 @@ $Core = {
         else {
             # WAM needs a window handle: in the GUI the browser sign-in is used instead
             try { Set-MgGraphOption -DisableLoginByWAM $true } catch { }
-            $connectParams.Scopes = $scopes
+            $connectParams.Scopes = $scopes + $cardScopes
             # do not persist the sign-in between sessions: no silent re-login with the wrong account
             $connectParams.ContextScope = 'Process'
         }
-        Connect-MgGraph @connectParams
+        try { Connect-MgGraph @connectParams }
+        catch {
+            # consent missing for the card permissions (non-admin user): connect with the base ones
+            if ($Unattended -or "$($_.Exception.Message)" -notmatch 'AADSTS65001|AADSTS65004|AADSTS90094|AADSTS90008|consent|approval|access_denied') { throw }
+            Write-HSLog (T 'warn.scopes' $_.Exception.Message) 'WARN'
+            $connectParams.Scopes = $scopes
+            Connect-MgGraph @connectParams
+        }
         $ctx = Get-MgContext
         if (-not $ctx) { throw (T 'err.graphConnect') }
         $who = if ($ctx.Account) { $ctx.Account } else { "app $($ctx.AppName)" }
@@ -998,7 +1245,8 @@ $Core = {
             -NoSignIn skips the sign-in data (and the warning) when it is not needed.
         #>
         param([switch]$NoSignIn)
-        $select = 'id,displayName,givenName,surname,userPrincipalName,mail,accountEnabled,assignedLicenses,provisionedPlans,onPremisesSamAccountName,onPremisesSyncEnabled,userType,createdDateTime'
+        $select = 'id,displayName,givenName,surname,userPrincipalName,mail,accountEnabled,assignedLicenses,provisionedPlans,onPremisesSamAccountName,onPremisesSyncEnabled,userType,createdDateTime' +
+        ',proxyAddresses,onPremisesImmutableId,onPremisesLastSyncDateTime,onPremisesDistinguishedName,onPremisesDomainName,onPremisesUserPrincipalName,onPremisesProvisioningErrors'
         if ($NoSignIn) { $users = Invoke-GraphPaged ('v1.0/users?$top=999&$select=' + $select) }
         else {
             try { $users = Invoke-GraphPaged ('v1.0/users?$top=120&$select=' + $select + ',signInActivity') }
@@ -1228,6 +1476,365 @@ $Core = {
         }
         @{ BySam = $bySam; RemoteBySam = $remoteBySam; Rows = $rows }
     }
+
+    function Get-HSADUser {
+        <#
+        .SYNOPSIS
+            Active Directory users of Cfg.DomainFqdn (limited to Cfg.SearchBase when set), with the
+            properties HybridScope uses, including the sync anchor (ms-DS-ConsistencyGuid).
+            Returns @{ Users = <AD users>; NetBIOS = <domain NetBIOS name> }.
+        #>
+        param($Cfg, [pscredential]$Credential)
+        Import-Module ActiveDirectory -ErrorAction Stop
+        $common = @{ Server = $Cfg.DomainFqdn }
+        if ($Credential) { $common.Credential = $Credential }
+        $netbios = ''
+        try { $netbios = (Get-ADDomain @common).NetBIOSName } catch { $netbios = ($Cfg.DomainFqdn -split '\.')[0].ToUpper() }
+        $props = 'GivenName', 'Surname', 'CanonicalName', 'LastLogonDate', 'PasswordLastSet', 'PasswordNeverExpires', 'UserPrincipalName', 'mail', 'whenCreated', 'Description', 'proxyAddresses'
+        $adParams = @{ Filter = '*'; Properties = @($props + 'mS-DS-ConsistencyGuid') } + $common
+        if ($Cfg.SearchBase) { $adParams.SearchBase = $Cfg.SearchBase }
+        try { $users = @(Get-ADUser @adParams) }
+        catch {
+            # very old schema without ms-DS-ConsistencyGuid: objectGUID is the anchor anyway
+            Write-HSLog (T 'warn.adConsistency' $_.Exception.Message) 'WARN'
+            $adParams.Properties = $props
+            $users = @(Get-ADUser @adParams)
+        }
+        Write-HSLog (T 'log.adUsers' $users.Count)
+        @{ Users = $users; NetBIOS = $netbios }
+    }
+
+    function Get-HSDirectorySync {
+        <#
+        .SYNOPSIS
+            Tenant directory sync status and verified domains (Microsoft Graph organization). $null when not readable.
+        #>
+        try {
+            $orgs = Invoke-GraphPaged 'v1.0/organization?$select=id,onPremisesSyncEnabled,onPremisesLastSyncDateTime,verifiedDomains'
+            if ($orgs.Count) { $orgs[0] } else { $null }
+        }
+        catch { Write-HSLog (T 'warn.org' $_.Exception.Message) 'WARN'; $null }
+    }
+
+    function Get-HSADAnchor {
+        <#
+        .SYNOPSIS
+            The sync anchor of an AD user as Entra stores it in onPremisesImmutableId (base64):
+            ms-DS-ConsistencyGuid when set, otherwise objectGUID (Entra Connect / Cloud Sync default).
+        #>
+        param($ADUser)
+        $consistency = $ADUser.'mS-DS-ConsistencyGuid'
+        if ($consistency) {
+            $bytes = [byte[]]@($consistency)
+            if ($bytes.Length -eq 16) { return [pscustomobject]@{ Value = [Convert]::ToBase64String($bytes); Source = 'ms-DS-ConsistencyGuid' } }
+        }
+        if ($ADUser.ObjectGUID) { return [pscustomobject]@{ Value = [Convert]::ToBase64String(([guid]"$($ADUser.ObjectGUID)").ToByteArray()); Source = 'objectGUID' } }
+        $null
+    }
+
+    function Format-HSAge {
+        param([timespan]$Age)
+        if ($Age.TotalMinutes -lt 120) { '{0:N0} min' -f $Age.TotalMinutes }
+        elseif ($Age.TotalHours -lt 72) { '{0:N0} h' -f $Age.TotalHours }
+        else { '{0:N0} d' -f $Age.TotalDays }
+    }
+
+    function Get-HSSyncIssue {
+        <#
+        .SYNOPSIS
+            Compares AD and Entra ID the way Entra Connect / Cloud Sync link them (sourceAnchor ->
+            onPremisesImmutableId, soft match on UPN / primary SMTP) and lists what is broken or about
+            to break. Returns @{ Rows = <SYNC tab>; BySam / ById = <categories per AD sam / Entra id>;
+            LinkedBySam = <Entra user linked to each AD sam by anchor>; Info = <anchor data per AD sam / Entra id> }.
+        #>
+        param($Cfg, $ADUsers, $EntraUsers, $Org)
+        Write-HSLog (T 'log.syncStart')
+        $timer = [System.Diagnostics.Stopwatch]::StartNew()
+        $rows = [System.Collections.Generic.List[object]]::new()
+        $bySam = @{}; $byId = @{}; $linkedBySam = @{}; $info = @{}
+        $now = Get-Date
+        $ADUsers = @($ADUsers)
+        $adBySam = @{}; foreach ($ad in $ADUsers) { $adBySam["$($ad.SamAccountName)"] = $ad }
+
+        $add = {
+            param([string]$CatKey, $Ad, $EntraUser, $Anchor, [string]$Details)
+            $category = T $CatKey
+            $rows.Add([pscustomobject][ordered]@{
+                    Category     = $category
+                    Username     = if ($Ad) { "$($Ad.SamAccountName)" } elseif ($EntraUser) { "$($EntraUser.onPremisesSamAccountName)" } else { '' }
+                    DisplayName  = if ($EntraUser) { "$($EntraUser.displayName)" } elseif ($Ad) { ("$($Ad.GivenName) $($Ad.Surname)").Trim() } else { '' }
+                    UPN          = if ($EntraUser) { "$($EntraUser.userPrincipalName)" } else { '' }
+                    AD_UPN       = if ($Ad) { "$($Ad.UserPrincipalName)" } else { '' }
+                    Anchor_AD    = if ($Anchor) { $Anchor.Value } else { '' }
+                    AnchorSource = if ($Anchor) { $Anchor.Source } else { '' }
+                    ImmutableId  = if ($EntraUser) { "$($EntraUser.onPremisesImmutableId)" } else { '' }
+                    SyncEnabled  = if ($EntraUser) { Format-HSYesNo ($EntraUser.onPremisesSyncEnabled -eq $true) } else { '' }
+                    LastSync     = if ($EntraUser) { ConvertTo-LocalDate $EntraUser.onPremisesLastSyncDateTime } else { $null }
+                    Details      = $Details
+                })
+            $short = $category -replace '^\d+ - ', ''
+            if ($Ad) { if (-not $bySam.ContainsKey("$($Ad.SamAccountName)")) { $bySam["$($Ad.SamAccountName)"] = [System.Collections.Generic.List[string]]::new() }; $bySam["$($Ad.SamAccountName)"].Add($short) }
+            if ($EntraUser) { if (-not $byId.ContainsKey($EntraUser.id)) { $byId[$EntraUser.id] = [System.Collections.Generic.List[string]]::new() }; $byId[$EntraUser.id].Add($short) }
+        }
+
+        # ---- 0: tenant sync status
+        if ($Org) {
+            if ($Org.onPremisesSyncEnabled -ne $true) { & $add 'sync.c0' $null $null $null (T 'sync.d.off') }
+            else {
+                $last = ConvertTo-LocalDate $Org.onPremisesLastSyncDateTime
+                if ($last) {
+                    $age = $now - $last; $ageText = Format-HSAge $age; $lastText = $last.ToString('yyyy-MM-dd HH:mm')
+                    $threshold = if ([double]$Cfg.SyncStaleHours -gt 0) { [double]$Cfg.SyncStaleHours } else { 3 }
+                    if ($age.TotalHours -gt $threshold) {
+                        & $add 'sync.c0' $null $null $null (T 'sync.d.stale' @($lastText, $ageText, $threshold))
+                        Write-HSLog (T 'warn.syncStale' @($ageText, $threshold)) 'WARN'
+                    }
+                    else { & $add 'sync.c0' $null $null $null (T 'sync.d.last' @($lastText, $ageText)) }
+                }
+            }
+        }
+
+        # ---- indexes
+        $verified = @{}
+        if ($Org) { foreach ($domainInfo in @($Org.verifiedDomains)) { if ($domainInfo.name) { $verified["$($domainInfo.name)".ToLower()] = $true } } }
+        $members = @($EntraUsers | Where-Object { $_.userType -ne 'Guest' })
+        $entraByAnchor = @{}; $entraBySam = @{}; $entraByAddress = @{}
+        $domainFqdn = "$($Cfg.DomainFqdn)".ToLower(); $searchBase = "$($Cfg.SearchBase)"
+        $inScope = {
+            # Entra user synced from the domain / OU that HybridScope reads (other domains and forests are not in $ADUsers)
+            param($EntraUser)
+            if ($EntraUser.onPremisesDomainName -and "$($EntraUser.onPremisesDomainName)".ToLower() -ne $domainFqdn) { return $false }
+            if ($searchBase -and $EntraUser.onPremisesDistinguishedName -and -not "$($EntraUser.onPremisesDistinguishedName)".EndsWith($searchBase, [StringComparison]::OrdinalIgnoreCase)) { return $false }
+            $true
+        }
+        foreach ($entraUser in $members) {
+            if ($entraUser.onPremisesImmutableId) { $entraByAnchor["$($entraUser.onPremisesImmutableId)"] = $entraUser }
+            if ($entraUser.onPremisesSyncEnabled -eq $true -and $entraUser.onPremisesSamAccountName -and (& $inScope $entraUser)) { $entraBySam["$($entraUser.onPremisesSamAccountName)"] = $entraUser }
+            $addresses = @("$($entraUser.userPrincipalName)", "$($entraUser.mail)")
+            foreach ($proxy in @($entraUser.proxyAddresses)) { if ("$proxy" -match '^smtp:') { $addresses += "$proxy".Substring(5) } }
+            foreach ($address in $addresses) { if ($address -and -not $entraByAddress.ContainsKey($address.ToLower())) { $entraByAddress[$address.ToLower()] = $entraUser } }
+        }
+
+        $anchorBySam = @{}; $samsByAnchor = @{}
+        foreach ($ad in $ADUsers) {
+            $anchor = Get-HSADAnchor $ad
+            if (-not $anchor) { continue }
+            $anchorBySam["$($ad.SamAccountName)"] = $anchor
+            if (-not $samsByAnchor.ContainsKey($anchor.Value)) { $samsByAnchor[$anchor.Value] = [System.Collections.Generic.List[string]]::new() }
+            $samsByAnchor[$anchor.Value].Add("$($ad.SamAccountName)")
+        }
+
+        # custom sourceAnchor (employeeID, mail...) or another forest: anchor comparison would flag everybody
+        $syncedInScope = @($members | Where-Object { $_.onPremisesSyncEnabled -eq $true -and $_.onPremisesImmutableId -and (& $inScope $_) })
+        $anchorHits = @($syncedInScope | Where-Object { $samsByAnchor.ContainsKey("$($_.onPremisesImmutableId)") }).Count
+        $customAnchor = ($syncedInScope.Count -ge 5 -and $anchorHits -lt [math]::Ceiling($syncedInScope.Count / 2))
+        if ($customAnchor) { Write-HSLog (T 'warn.syncAnchor' @($anchorHits, $syncedInScope.Count)) 'WARN' }
+
+        # ---- AD side
+        $linkedIds = @{}; $reportedIds = @{}; $adById = @{}
+        foreach ($ad in $ADUsers) {
+            $sam = "$($ad.SamAccountName)"
+            $anchor = $anchorBySam[$sam]
+            $linked = $null
+            if (-not $customAnchor -and $anchor -and $entraByAnchor.ContainsKey($anchor.Value)) { $linked = $entraByAnchor[$anchor.Value] }
+            elseif ($customAnchor -and $entraBySam.ContainsKey($sam)) { $linked = $entraBySam[$sam] }
+            $info[$sam] = [pscustomobject]@{ Anchor = $anchor; EntraUser = $linked }
+
+            if ($linked) {
+                $linkedBySam[$sam] = $linked; $linkedIds[$linked.id] = $true; $adById[$linked.id] = $ad
+                if ($linked.onPremisesSyncEnabled -ne $true) {
+                    & $add 'sync.c3' $ad $linked $anchor (T 'sync.d.leftoverAd' $sam); $reportedIds[$linked.id] = $true
+                }
+                elseif ("$($linked.userPrincipalName)" -like '*.onmicrosoft.com' -and "$($ad.UserPrincipalName)" -notlike '*.onmicrosoft.com') {
+                    # The sync builds the Entra UPN from an AD attribute (userPrincipalName, or mail with
+                    # Alternate Login ID): when that suffix is not a verified domain the UPN falls back to
+                    # tenant.onmicrosoft.com. A different UPN with a verified domain is a normal setup.
+                    $details = T 'sync.d.upn' @($linked.userPrincipalName, $ad.UserPrincipalName, $ad.mail)
+                    $unverified = @(@("$($ad.UserPrincipalName)", "$($ad.mail)") | Where-Object { $_ -like '*@*' } | ForEach-Object { ($_ -split '@')[-1].ToLower() } | Where-Object { -not $verified.ContainsKey($_) } | Select-Object -Unique)
+                    if ($verified.Count -and $unverified.Count) { $details += ' ' + (T 'sync.d.upnSuffix' ($unverified -join ', ')) }
+                    & $add 'sync.c7' $ad $linked $anchor $details
+                }
+                continue
+            }
+
+            # 1: same account (sam) synced in Entra, but bound to another anchor
+            if (-not $customAnchor -and $anchor -and $entraBySam.ContainsKey($sam)) {
+                $other = $entraBySam[$sam]
+                if (-not $samsByAnchor.ContainsKey("$($other.onPremisesImmutableId)")) {
+                    & $add 'sync.c1' $ad $other $anchor (T 'sync.d.mismatch' @($anchor.Value, $anchor.Source, $other.onPremisesImmutableId))
+                    $reportedIds[$other.id] = $true
+                    continue
+                }
+            }
+
+            # 4 / 5: a cloud-managed account with the same UPN or primary SMTP (what soft match looks at)
+            $keys = [System.Collections.Generic.List[object]]::new()
+            $keys.Add([pscustomobject]@{ Kind = 'UPN'; Value = "$($ad.UserPrincipalName)" })
+            $keys.Add([pscustomobject]@{ Kind = 'SMTP'; Value = "$($ad.mail)" })
+            foreach ($proxy in @($ad.proxyAddresses)) { if ("$proxy" -cmatch '^SMTP:') { $keys.Add([pscustomobject]@{ Kind = 'SMTP'; Value = "$proxy".Substring(5) }) } }
+            foreach ($key in $keys) {
+                if (-not $key.Value) { continue }
+                $candidate = $entraByAddress[$key.Value.ToLower()]
+                if (-not $candidate -or $candidate.onPremisesSyncEnabled -eq $true -or $reportedIds.ContainsKey($candidate.id)) { continue }
+                if (-not $candidate.onPremisesImmutableId) { & $add 'sync.c4' $ad $candidate $anchor (T 'sync.d.soft' @($candidate.userPrincipalName, $key.Kind)) }
+                else { & $add 'sync.c5' $ad $candidate $anchor (T 'sync.d.conflict' @($candidate.userPrincipalName, $key.Kind, $candidate.onPremisesImmutableId, $(if ($anchor) { $anchor.Value } else { '' }))) }
+                $reportedIds[$candidate.id] = $true
+                break
+            }
+        }
+
+        # 8: two AD accounts with the same anchor (copied ms-DS-ConsistencyGuid, restored objects)
+        foreach ($anchorValue in $samsByAnchor.Keys) {
+            $sams = $samsByAnchor[$anchorValue]
+            if ($sams.Count -lt 2) { continue }
+            foreach ($sam in $sams) {
+                $ad = $adBySam[$sam]
+                & $add 'sync.c8' $ad $null $anchorBySam[$sam] (T 'sync.d.dup' @($anchorValue, (@($sams | Where-Object { $_ -ne $sam }) -join ', ')))
+            }
+        }
+
+        # ---- Entra side
+        foreach ($entraUser in $members) {
+            if ($entraUser.onPremisesImmutableId -and -not $linkedIds.ContainsKey($entraUser.id) -and -not $reportedIds.ContainsKey($entraUser.id)) {
+                if ($entraUser.onPremisesSyncEnabled -eq $true) {
+                    # 2: synced from the domain we read, but no AD account carries its anchor
+                    if (-not $customAnchor -and $ADUsers.Count -and (& $inScope $entraUser)) {
+                        $where = if ($entraUser.onPremisesDistinguishedName) { "$($entraUser.onPremisesDistinguishedName)" } else { "$($entraUser.onPremisesSamAccountName)" }
+                        & $add 'sync.c2' $null $entraUser $null (T 'sync.d.notInAd' @($where, $entraUser.onPremisesImmutableId))
+                    }
+                }
+                else { & $add 'sync.c3' $null $entraUser $null (T 'sync.d.leftover' $entraUser.onPremisesImmutableId) }   # 3
+            }
+            # 6: errors Entra reports on the synced object (duplicate proxyAddresses / UPN...)
+            foreach ($provError in @($entraUser.onPremisesProvisioningErrors)) {
+                if (-not $provError) { continue }
+                $occurred = ConvertTo-LocalDate $provError.occurredDateTime
+                & $add 'sync.c6' $adById[$entraUser.id] $entraUser $(if ($adById[$entraUser.id]) { $anchorBySam["$($adById[$entraUser.id].SamAccountName)"] }) (T 'sync.d.prov' @($provError.propertyCausingError, $provError.value, $provError.category, $(if ($occurred) { $occurred.ToString('yyyy-MM-dd HH:mm') } else { '' })))
+            }
+        }
+
+        $sorted = @($rows | Sort-Object Category, Username, UPN)
+        Write-HSLog (T 'log.sync' @(@($sorted | Where-Object { $_.Category -ne (T 'sync.c0') }).Count, [math]::Round($timer.Elapsed.TotalSeconds, 1)))
+        @{ Rows = $sorted; BySam = $bySam; ById = $byId; LinkedBySam = $linkedBySam; Info = $info; CustomAnchor = $customAnchor }
+    }
+
+    function Get-HSLatestRelease {
+        <#
+        .SYNOPSIS
+            Latest HybridScope release on GitHub (public API, no sign-in). Only called from Help > Check for updates.
+        #>
+        param([string]$Repo)
+        [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+        # corporate proxies that need the Windows sign-in
+        try { [System.Net.WebRequest]::DefaultWebProxy.Credentials = [System.Net.CredentialCache]::DefaultNetworkCredentials } catch { }
+        $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/latest" -Headers @{ 'User-Agent' = 'HybridScope'; Accept = 'application/vnd.github+json' } -TimeoutSec 15
+        [pscustomobject]@{
+            Version   = "$($release.tag_name)" -replace '^[vV]', ''
+            Url       = "$($release.html_url)"
+            Published = ConvertTo-LocalDate $release.published_at
+        }
+    }
+
+    function Compare-HSVersion {
+        # -1 / 0 / 1 like [version].CompareTo; falls back to a string comparison for odd tags
+        param([string]$Left, [string]$Right)
+        $l = $null; $r = $null
+        if ([version]::TryParse($Left, [ref]$l) -and [version]::TryParse($Right, [ref]$r)) { return $l.CompareTo($r) }
+        [string]::Compare($Left, $Right, [StringComparison]::OrdinalIgnoreCase)
+    }
+
+    function ConvertTo-HSLdapValue {
+        # escapes a value for an LDAP filter (RFC 4515)
+        param([string]$Value)
+        $Value -replace '\\', '\5c' -replace '\*', '\2a' -replace '\(', '\28' -replace '\)', '\29' -replace "`0", '\00'
+    }
+
+    function Get-HSGroupKind {
+        <#
+        .SYNOPSIS
+            Readable kind of an Entra group: Microsoft 365, security, mail-enabled security, distribution list; dynamic or not.
+        #>
+        param($Group)
+        $kind = if (@($Group.groupTypes) -contains 'Unified') { T 'card.type.m365' }
+        elseif ($Group.securityEnabled -and $Group.mailEnabled) { T 'card.type.mailSec' }
+        elseif ($Group.securityEnabled) { T 'card.type.security' }
+        else { T 'card.type.dl' }
+        if (@($Group.groupTypes) -contains 'DynamicMembership') { T 'card.type.dynamic' $kind } else { $kind }
+    }
+
+    function Get-HSUserGroup {
+        <#
+        .SYNOPSIS
+            Groups and roles of one user, for the user card: AD groups (direct, nested via
+            LDAP_MATCHING_RULE_IN_CHAIN, and the primary group) and Entra groups / roles / administrative
+            units (memberOf + transitiveMemberOf). Either part is skipped when Sam / Upn is empty.
+            Returns @{ Rows; Errors; AD; Entra; Roles } (counts).
+        #>
+        param($Cfg, [string]$Sam, [string]$Upn, [pscredential]$ADCredential)
+        $rows = [System.Collections.Generic.List[object]]::new()
+        $errors = [System.Collections.Generic.List[string]]::new()
+        $countAD = 0; $countEntra = 0; $countRoles = 0
+
+        if ($Sam -and $Cfg.DomainFqdn) {
+            try {
+                Import-Module ActiveDirectory -ErrorAction Stop
+                $common = @{ Server = $Cfg.DomainFqdn }
+                if ($ADCredential) { $common.Credential = $ADCredential }
+                $adUser = Get-ADUser -Identity $Sam -Properties memberOf, primaryGroupID @common
+                $direct = @{}; foreach ($groupDn in @($adUser.memberOf)) { $direct["$groupDn"] = $true }
+                $adGroups = @(Get-ADGroup -LDAPFilter "(member:1.2.840.113556.1.4.1941:=$(ConvertTo-HSLdapValue $adUser.DistinguishedName))" -Properties description @common)
+                $primary = $null
+                try { $primary = Get-ADGroup -Identity "$($adUser.SID.AccountDomainSid.Value)-$($adUser.primaryGroupID)" -Properties description @common } catch { }
+                if ($primary) { $adGroups = @($primary) + @($adGroups | Where-Object { $_.DistinguishedName -ne $primary.DistinguishedName }) }
+                foreach ($group in $adGroups) {
+                    $category = if ("$($group.GroupCategory)" -eq 'Distribution') { T 'card.type.distribution' } else { T 'card.type.security' }
+                    $membership = if ($primary -and $group.DistinguishedName -eq $primary.DistinguishedName) { T 'card.primary' } elseif ($direct.ContainsKey("$($group.DistinguishedName)")) { T 'card.direct' } else { T 'card.inherited' }
+                    $rows.Add([pscustomobject][ordered]@{
+                            Source = 'AD'; Name = "$($group.Name)"; Type = "$category ($($group.GroupScope))"; Membership = $membership
+                            SyncedFromAD = ''; Details = "$($group.description)"
+                        })
+                    $countAD++
+                }
+            }
+            catch { $errors.Add((T 'card.err.ad' $_.Exception.Message)) }
+        }
+
+        $hasGraph = $false
+        try { $hasGraph = [bool](Get-MgContext) } catch { }
+        if ($Upn -and $hasGraph) {
+            try {
+                $userKey = [uri]::EscapeDataString($Upn)
+                $directIds = @{}
+                foreach ($object in (Invoke-GraphPaged "v1.0/users/$userKey/memberOf")) { $directIds["$($object.id)"] = $true }
+                $missing = [System.Collections.Generic.List[string]]::new()
+                foreach ($object in (Invoke-GraphPaged "v1.0/users/$userKey/transitiveMemberOf")) {
+                    $odataType = "$($object.'@odata.type')"
+                    $name = if ($object.displayName) { "$($object.displayName)" } else { "$($object.id)" }
+                    switch -Wildcard ($odataType) {
+                        '*group' { $type = Get-HSGroupKind $object; $countEntra++; if (-not $object.displayName -and -not $missing.Contains('GroupMember.Read.All')) { $missing.Add('GroupMember.Read.All') } }
+                        '*directoryRole' { $type = T 'card.type.role'; $countRoles++; if (-not $object.displayName -and -not $missing.Contains('RoleManagement.Read.Directory')) { $missing.Add('RoleManagement.Read.Directory') } }
+                        '*administrativeUnit' { $type = T 'card.type.au' }
+                        default { $type = $odataType -replace '^#microsoft\.graph\.', '' }
+                    }
+                    $details = if ($object.membershipRule) { "$($object.membershipRule)" } elseif ($object.mail) { "$($object.mail)" } else { "$($object.description)" }
+                    $rows.Add([pscustomobject][ordered]@{
+                            Source = 'Entra'; Name = $name; Type = $type
+                            Membership = if ($directIds.ContainsKey("$($object.id)")) { T 'card.direct' } else { T 'card.inherited' }
+                            SyncedFromAD = if ($odataType -like '*group') { Format-HSYesNo ($object.onPremisesSyncEnabled -eq $true) } else { '' }
+                            Details = $details
+                        })
+                }
+                if ($missing.Count) { $errors.Add((T 'card.err.perm' ($missing -join ', '))) }
+            }
+            catch {
+                $message = "$($_.Exception.Message)"
+                if ($message -match 'Forbidden|Authorization_RequestDenied|Insufficient privileges') { $errors.Add((T 'card.err.perm' 'GroupMember.Read.All')) }
+                else { $errors.Add((T 'card.err.graph' $message)) }
+            }
+        }
+        [pscustomobject]@{ Rows = @($rows | Sort-Object Source, Membership, Name); Errors = @($errors); AD = $countAD; Entra = $countEntra; Roles = $countRoles }
+    }
+
     # --------------------------------------------------------------------------- data collection
     function Get-HSData {
         <#
@@ -1246,7 +1853,9 @@ $Core = {
             Enabled = T 'val.enabled'; Disabled = T 'val.disabled'; None = T 'val.none'
             MfaYes = T 'val.mfaYes'; MfaNo = T 'val.mfaNo'; MfaNotInEntra = T 'val.mfaNotInEntra'
             Synced = T 'val.originSynced'; ADOnly = T 'val.originAD'; Cloud = T 'val.originCloud'; Guest = T 'val.originGuest'
+            Unlinked = T 'val.originUnlinked'
         }
+        $AdOrigins = @($Labels.Synced, $Labels.ADOnly, $Labels.Unlinked)
         $LicenseNames = Get-HSLicenseNameMap $Cfg
         $MappedOnly = ($Cfg.LicenseFilter -eq 'MappedOnly')
 
@@ -1294,24 +1903,23 @@ $Core = {
         elseif ($Src.Exch) { Write-HSLog (T 'log.exchSkipped') }
 
         # ================================================= ACTIVE DIRECTORY
-        $adUsers = @(); $NetBIOS = ''
+        $adUsers = @(); $NetBIOS = ''; $AdRead = $false
         if ($Src.AD -and $Cfg.DomainFqdn) {
             try {
-                Import-Module ActiveDirectory -ErrorAction Stop
-                $common = @{ Server = $Cfg.DomainFqdn }
-                if ($ADCredential) { $common.Credential = $ADCredential }
-                try { $NetBIOS = (Get-ADDomain @common).NetBIOSName } catch { $NetBIOS = ($Cfg.DomainFqdn -split '\.')[0].ToUpper() }
-                $adParams = @{
-                    Filter     = '*'
-                    Properties = 'GivenName', 'Surname', 'CanonicalName', 'LastLogonDate', 'PasswordLastSet', 'PasswordNeverExpires', 'UserPrincipalName', 'mail', 'whenCreated', 'Description'
-                } + $common
-                if ($Cfg.SearchBase) { $adParams.SearchBase = $Cfg.SearchBase }
-                $adUsers = @(Get-ADUser @adParams)
-                Write-HSLog (T 'log.adUsers' $adUsers.Count)
+                $adData = Get-HSADUser -Cfg $Cfg -Credential $ADCredential
+                $adUsers = @($adData.Users); $NetBIOS = $adData.NetBIOS; $AdRead = $true
             }
             catch { Write-HSLog (T 'warn.ad' $_.Exception.Message) 'WARN' }
         }
         elseif ($Src.AD) { Write-HSLog (T 'log.adSkipped') }
+
+        # ================================================= SYNC (AD <-> Entra ID)
+        $Sync = $null
+        if ($Src.M365 -and $AdRead) {
+            try { $Sync = Get-HSSyncIssue -Cfg $Cfg -ADUsers $adUsers -EntraUsers $entra -Org (Get-HSDirectorySync) }
+            catch { Write-HSLog (T 'warn.sync' $_.Exception.Message) 'WARN' }
+        }
+        $SyncInfo = @{}
 
         # ================================================= USER ROWS
         $GrpOther = if ($Cfg.UnmappedGroup) { $Cfg.UnmappedGroup } else { T 'grp.other' }
@@ -1323,7 +1931,28 @@ $Core = {
             $upn = if ($EntraUser) { $EntraUser.userPrincipalName } else { $null }
             $notes = [System.Collections.Generic.List[string]]::new()
 
-            $origin = if ($Ad -and $EntraUser) { $Labels.Synced } elseif ($Ad) { $Labels.ADOnly } elseif ($EntraUser.userType -eq 'Guest') { $Labels.Guest } else { $Labels.Cloud }
+            # an AD account paired by name with a cloud account that Entra does not sync from AD is not "synced"
+            $origin = if ($Ad -and $EntraUser) { if ($EntraUser.onPremisesSyncEnabled -eq $true) { $Labels.Synced } else { $Labels.Unlinked } } elseif ($Ad) { $Labels.ADOnly } elseif ($EntraUser.userType -eq 'Guest') { $Labels.Guest } else { $Labels.Cloud }
+
+            # sync problems (SYNC tab) and anchor data for the user card
+            $syncIssues = ''
+            if ($Sync) {
+                $issueList = @()
+                if ($Ad -and $Sync.BySam.ContainsKey("$($Ad.SamAccountName)")) { $issueList += @($Sync.BySam["$($Ad.SamAccountName)"]) }
+                if ($EntraUser -and $Sync.ById.ContainsKey($EntraUser.id)) { $issueList += @($Sync.ById[$EntraUser.id]) }
+                $syncIssues = (@($issueList | Select-Object -Unique) -join '; ')
+            }
+            if ($Src.M365 -and $Src.AD) {
+                $anchor = if ($Ad -and $Sync -and $Sync.Info.ContainsKey("$($Ad.SamAccountName)")) { $Sync.Info["$($Ad.SamAccountName)"].Anchor } else { $null }
+                $SyncInfo["$sam|$upn"] = [pscustomobject][ordered]@{
+                    Anchor_AD    = if ($anchor) { $anchor.Value } else { '' }
+                    AnchorSource = if ($anchor) { $anchor.Source } else { '' }
+                    ImmutableId  = if ($EntraUser) { "$($EntraUser.onPremisesImmutableId)" } else { '' }
+                    SyncEnabled  = if ($EntraUser) { Format-HSYesNo ($EntraUser.onPremisesSyncEnabled -eq $true) } else { '' }
+                    LastSync     = if ($EntraUser) { ConvertTo-LocalDate $EntraUser.onPremisesLastSyncDateTime } else { $null }
+                    AD_UPN       = if ($Ad) { "$($Ad.UserPrincipalName)" } else { '' }
+                }
+            }
             $enabled = if ($Ad) { [bool]$Ad.Enabled } else { [bool]$EntraUser.accountEnabled }
 
             $ou = ''
@@ -1413,6 +2042,7 @@ $Core = {
                 MFA_PerUser       = $mfaPerUser
                 UPN               = $upn
                 Origin            = $origin
+                SyncIssues        = $syncIssues
                 Notes             = $notes -join '; '
             }
         }
@@ -1434,11 +2064,17 @@ $Core = {
         $Groups = [ordered]@{}
         foreach ($rule in @($Cfg.GroupRules)) { if ($rule.Group -and -not $Groups.Contains($rule.Group)) { $Groups[$rule.Group] = [System.Collections.Generic.List[object]]::new() } }
         $seenEntra = @{}
+        $LinkedIds = @{}
+        if ($Sync) { foreach ($linkedUser in $Sync.LinkedBySam.Values) { $LinkedIds[$linkedUser.id] = $true } }
         foreach ($ad in $adUsers) {
             $entraUser = $null
-            if ($EntraBySam.ContainsKey($ad.SamAccountName)) { $entraUser = $EntraBySam[$ad.SamAccountName] }
+            # the sync anchor is the real link; names are the fallback (AD-only accounts, custom anchors)
+            if ($Sync -and $Sync.LinkedBySam.ContainsKey("$($ad.SamAccountName)")) { $entraUser = $Sync.LinkedBySam["$($ad.SamAccountName)"] }
+            elseif ($EntraBySam.ContainsKey($ad.SamAccountName)) { $entraUser = $EntraBySam[$ad.SamAccountName] }
             elseif ($ad.UserPrincipalName -and $EntraByUpn.ContainsKey($ad.UserPrincipalName)) { $entraUser = $EntraByUpn[$ad.UserPrincipalName] }
             elseif ($EntraByLocal.ContainsKey($ad.SamAccountName)) { $entraUser = $EntraByLocal[$ad.SamAccountName] }
+            # never pair by name with a cloud account that the anchor already links to another AD account
+            if ($entraUser -and $Sync -and $LinkedIds.ContainsKey($entraUser.id) -and -not $Sync.LinkedBySam.ContainsKey("$($ad.SamAccountName)")) { $entraUser = $null }
             if ($entraUser) { $seenEntra[$entraUser.id] = $true }
             $groupName = & $getGroup $ad
             if (-not $Groups.Contains($groupName)) { $Groups[$groupName] = [System.Collections.Generic.List[object]]::new() }
@@ -1468,6 +2104,8 @@ $Core = {
         & $addMetric 'disabled' (T 'm.disabled') { param($rows) @($rows | Where-Object { $_.Status -eq $Labels.Disabled }).Count }
         if ($Src.AD -and $Src.M365) {
             & $addMetric 'adOnly' (T 'm.adOnly') { param($rows) @($rows | Where-Object { $_.Origin -eq $Labels.ADOnly }).Count }
+            & $addMetric 'unlinked' (T 'm.unlinked') { param($rows) @($rows | Where-Object { $_.Origin -eq $Labels.Unlinked }).Count }
+            if ($Sync) { & $addMetric 'syncIssues' (T 'm.syncIssues') { param($rows) @($rows | Where-Object { $_.SyncIssues }).Count } }
             & $addMetric 'cloudOnly' (T 'm.cloudOnly') { param($rows) @($rows | Where-Object { $_.Origin -eq $Labels.Cloud -or $_.Origin -eq $Labels.Guest }).Count }
         }
         if ($Src.M365 -or $Src.Exch) {
@@ -1503,7 +2141,7 @@ $Core = {
         & $addMetric 'perUserEnforced' (T 'm.perUserEnforced') { param($rows) @($rows | Where-Object { $_.MFA_PerUser -eq 'enforced' }).Count }
         }   # end Microsoft 365 metrics
         & $addMetric 'secInactive' (T 'm.sec.inactive') $null -Section
-        if ($Src.AD) { & $addMetric 'inactiveAD' (T 'm.inactiveAD' $Cfg.InactiveDays) { param($rows) @($rows | Where-Object { $_.Status -eq $Labels.Enabled -and ($_.Origin -eq $Labels.Synced -or $_.Origin -eq $Labels.ADOnly) -and (-not $_.AD_LastLogon -or $_.AD_LastLogon -lt $InactiveCut) }).Count } }
+        if ($Src.AD) { & $addMetric 'inactiveAD' (T 'm.inactiveAD' $Cfg.InactiveDays) { param($rows) @($rows | Where-Object { $_.Status -eq $Labels.Enabled -and ($AdOrigins -contains $_.Origin) -and (-not $_.AD_LastLogon -or $_.AD_LastLogon -lt $InactiveCut) }).Count } }
         if ($Src.M365) { & $addMetric 'inactive365' (T 'm.inactive365' $Cfg.InactiveDays) { param($rows) @($rows | Where-Object { $_.Status -eq $Labels.Enabled -and (& $isLic $_) -and (-not $_.M365_LastSignIn -or $_.M365_LastSignIn -lt $InactiveCut) }).Count } }
         if ($Src.AD) { & $addMetric 'pwdOld' (T 'm.pwdOld' $Cfg.PasswordAgeDays) { param($rows) @($rows | Where-Object { $_.Status -eq $Labels.Enabled -and $_.PasswordLastSet -and $_.PasswordLastSet -lt $PwdCut }).Count } }
 
@@ -1533,8 +2171,9 @@ $Core = {
             if ($userRow.Status -eq $Labels.Enabled -and $isLicensed -and $userRow.MFA_Status -eq $Labels.MfaNo) { & $addAttention (T 'att.c2') $userRow $userRow.MFA_PerUser }
             if ($userRow.Status -eq $Labels.Disabled -and $isLicensed) { & $addAttention (T 'att.c3') $userRow '' }
             if ($userRow.Status -eq $Labels.Enabled -and $isLicensed -and (-not $userRow.M365_LastSignIn -or $userRow.M365_LastSignIn -lt $InactiveCut)) { & $addAttention (T 'att.c4' $Cfg.InactiveDays) $userRow (& $lastOrNever $userRow.M365_LastSignIn) }
-            if ($userRow.Status -eq $Labels.Enabled -and ($userRow.Origin -eq $Labels.Synced -or $userRow.Origin -eq $Labels.ADOnly) -and (-not $userRow.AD_LastLogon -or $userRow.AD_LastLogon -lt $InactiveCut)) { & $addAttention (T 'att.c5' $Cfg.InactiveDays) $userRow (& $lastOrNever $userRow.AD_LastLogon) }
+            if ($userRow.Status -eq $Labels.Enabled -and ($AdOrigins -contains $userRow.Origin) -and (-not $userRow.AD_LastLogon -or $userRow.AD_LastLogon -lt $InactiveCut)) { & $addAttention (T 'att.c5' $Cfg.InactiveDays) $userRow (& $lastOrNever $userRow.AD_LastLogon) }
             if ($Src.M365 -and $Src.AD -and $userRow.Origin -eq $Labels.ADOnly -and $userRow.Status -eq $Labels.Enabled) { & $addAttention (T 'att.c6') $userRow $userRow.OU }
+            if ($userRow.SyncIssues) { & $addAttention (T 'att.c7') $userRow $userRow.SyncIssues }
         }
         $Attn = @($Attn | Sort-Object Category, _k, Username | Select-Object * -ExcludeProperty _k)
 
@@ -1549,6 +2188,7 @@ $Core = {
         if (-not $Src.Exch) { $drop += 'MailboxOnPrem_MB' }
         if (-not $Src.Exch -and -not $Src.M365) { $drop += 'Location', 'MailboxType', 'MailboxSource' }
         if (-not $Src.AD) { $drop += 'AD_LastLogon', 'PasswordLastSet', 'OU' }
+        if (-not $Sync) { $drop += 'SyncIssues' }
         $strip = { param($rows) if ($drop.Count) { @($rows | Select-Object * -ExcludeProperty $drop) } else { @($rows) } }
 
         $Tables = [ordered]@{}
@@ -1562,6 +2202,7 @@ $Core = {
             $Tables[(T 'tab.mfa')] = $TabMfa
             $Tables[(T 'tab.licenses')] = $TabLic
         }
+        if ($Sync -and $Sync.Rows.Count) { $Tables[(T 'tab.sync')] = $Sync.Rows }
         if ($Attn.Count) { $Tables[(T 'tab.attention')] = & $strip $Attn }
         $hist = Join-Path (Get-HSOutputFolder $Cfg) 'history.csv'
         if (Test-Path $hist) { $Tables[(T 'tab.history')] = @(Import-Csv -Path $hist -Delimiter ';' -Encoding UTF8) }
@@ -1573,6 +2214,9 @@ $Core = {
             Tables       = $Tables
             OverviewName = (T 'tab.overview')
             MetricFlags  = @($Metrics | ForEach-Object { [pscustomobject]@{ IsSection = $_.IsSection; IsGB = $_.IsGB } })
+            Users        = $All          # unstripped rows and per-user extras, for the user card
+            SyncInfo     = $SyncInfo
+            SourceFlags  = $Src
             Totals       = $Totals
             Warnings     = @($script:HS_Warnings | Select-Object -Unique)
             Sources      = (@($(if ($Src.AD) { "AD $($Cfg.DomainFqdn)" }), $(if ($Src.Exch) { "Exchange $($Cfg.ExchangeServer)" }), $(if ($Src.M365) { "Microsoft 365 $((Get-MgContext).TenantId)" })) | Where-Object { $_ }) -join ' | '
@@ -1586,7 +2230,7 @@ $Core = {
             Returns the rows of that tab. The Microsoft 365 datasets need a Graph connection
             (Connect-HS365); MailboxOnPrem connects to Exchange with the current Windows account.
         #>
-        param($Cfg, [ValidateSet('MFA', 'Licenses', 'Mailbox365', 'OneDrive', 'MailboxOnPrem')][string]$Name, [pscredential]$ExchangeCredential)
+        param($Cfg, [ValidateSet('MFA', 'Licenses', 'Mailbox365', 'OneDrive', 'MailboxOnPrem', 'Sync')][string]$Name, [pscredential]$ExchangeCredential)
         $ErrorActionPreference = 'Stop'
         $script:HS_Warnings = [System.Collections.Generic.List[string]]::new()
         if ($Name -ne 'MailboxOnPrem' -and -not (Get-MgContext)) { throw (T 'err.not365') }
@@ -1610,6 +2254,12 @@ $Core = {
             'MailboxOnPrem' {
                 if (-not $Cfg.ExchangeServer -and $Cfg.ExchangeProtocol -ne 'local') { throw (T 'msg.exchNoServer') }
                 (Get-HSExchangeMailbox -Cfg $Cfg -Credential $ExchangeCredential).Rows | Sort-Object Size_MB -Descending
+            }
+            'Sync' {
+                if (-not $Cfg.DomainFqdn) { throw (T 'err.noDomain') }
+                $adUsers = (Get-HSADUser -Cfg $Cfg).Users
+                $entra = Get-HSEntraUser -NoSignIn
+                (Get-HSSyncIssue -Cfg $Cfg -ADUsers $adUsers -EntraUsers $entra -Org (Get-HSDirectorySync)).Rows
             }
         }
     }
@@ -1682,7 +2332,8 @@ $Core = {
             $i++
             $sheetName = Get-HSSheetName $name
             $sheets[$sheetName] = $rows
-            $excelParams = @{ Path = $Path; WorksheetName = $sheetName; TableName = "T$i"; TableStyle = 'Medium2'; AutoSize = $true; BoldTopRow = $true }
+            # not "T1": ImportExcel 7.8 refuses table names that read as a cell address and then creates no table
+            $excelParams = @{ Path = $Path; WorksheetName = $sheetName; TableName = "HS_$i"; TableStyle = 'Medium2'; AutoSize = $true; BoldTopRow = $true }
             if ($name -eq $Data.OverviewName) { $excelParams.FreezeTopRowFirstColumn = $true } else { $excelParams.FreezeTopRow = $true; $excelParams.ConditionalText = $condFormats }
             $rows | Export-Excel @excelParams
             Write-HSLog (T 'log.excelSheet' @($sheetName, $rows.Count))
@@ -1735,6 +2386,182 @@ $Core = {
         }
         Write-HSLog (T 'log.csvSaved' $Folder)
         $Folder
+    }
+
+    # --------------------------------------------------------------------------- import
+    $script:HS_DateProps = 'AD_LastLogon', 'M365_LastSignIn', 'PasswordLastSet', 'LastLogon', 'LastActivity', 'Created', 'LastSync'
+    $script:HS_NumberProps = '_MB$|_GB$|^(Items|Files|ActiveFiles|Purchased|Assigned|Available|Suspended|Warning|Users|Enabled|OnPrem|On365|MFA_Percent|LicensedWithoutMFA)$'
+
+    function Resolve-HSHeader {
+        <#
+        .SYNOPSIS
+            English property name for a column header of an exported report (any language).
+            "Nome" is ambiguous in Italian: first name in user tables, license name in TENANT_LICENSES /
+            ATTENTION, display name elsewhere.
+        #>
+        param([string]$Header, [string[]]$SheetHeaders)
+        $candidates = @(@(foreach ($lang in $script:HS_Cols.Keys) { foreach ($prop in $script:HS_Cols[$lang].Keys) { if ($script:HS_Cols[$lang][$prop] -ceq $Header) { $prop } } }) | Select-Object -Unique)
+        if (-not $candidates.Count) { return $Header }
+        if ($candidates.Count -eq 1) { return $candidates[0] }
+        if ($SheetHeaders -contains (Get-HSHeaderIn 'LastName')) { return 'FirstName' }
+        if ($SheetHeaders -contains 'SKU' -or $SheetHeaders -contains (Get-HSHeaderIn 'Licenses')) { return 'Name' }
+        'DisplayName'
+    }
+
+    function Get-HSHeaderIn {
+        # localized header of Prop in whichever language has a translation (Italian today)
+        param([string]$Prop)
+        foreach ($lang in $script:HS_Cols.Keys) { if ($script:HS_Cols[$lang].ContainsKey($Prop)) { return $script:HS_Cols[$lang][$Prop] } }
+        $Prop
+    }
+
+    function ConvertFrom-HSCell {
+        <#
+        .SYNOPSIS
+            Restores the type of one imported value: Excel stores dates as numbers (OADate), CSV stores
+            everything as text in the culture of the PC that exported it.
+        #>
+        param($Value, [string]$Prop, [switch]$FromCsv, [switch]$Number)
+        if ($null -eq $Value) { return $null }
+        if ($Value -is [string]) {
+            $text = $Value.Trim()
+            if ($text -eq '') { return $null }
+            if ($script:HS_DateProps -contains $Prop) {
+                $date = [datetime]::MinValue
+                if ([datetime]::TryParse($text, [Globalization.CultureInfo]::CurrentCulture, [Globalization.DateTimeStyles]::None, [ref]$date)) { return $date }
+                if ([datetime]::TryParse($text, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::None, [ref]$date)) { return $date }
+                return $text
+            }
+            if ($Number -or $Prop -match $script:HS_NumberProps) {
+                $num = 0.0
+                if ([double]::TryParse($text, [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::CurrentCulture, [ref]$num)) { return $num }
+                if ([double]::TryParse($text, [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$num)) { return $num }
+            }
+            return $text
+        }
+        if ($Value -is [double] -and $script:HS_DateProps -contains $Prop) { try { return [datetime]::FromOADate($Value) } catch { return $Value } }
+        $Value
+    }
+
+    function Import-HSReport {
+        <#
+        .SYNOPSIS
+            Reads a report written by HybridScope back into the same shape Get-HSData returns, so the GUI
+            can show it: a full or single-tab .xlsx, a single .csv, or a HybridScope_CSV_* folder (or one
+            of its files). Headers in any language are mapped back to the English property names.
+        #>
+        param([string]$Path)
+        $Path = (Resolve-Path -LiteralPath $Path).ProviderPath
+        Write-HSLog (T 'log.import' $Path)
+        $sheets = [System.Collections.Generic.List[object]]::new()     # @{ Name; Rows (raw) }
+        $isCsv = $false
+
+        # tab names of either language -> the current one (OVERVIEW / PANORAMICA, USERS / UTENTI...)
+        $tabNames = @{}
+        foreach ($lang in $script:HS_Str.Keys) { foreach ($key in $script:HS_Str[$lang].Keys) { if ($key -like 'tab.*') { $tabNames[(Get-HSSheetName $script:HS_Str[$lang][$key])] = $key } } }
+        # CSV files carry no order: same order as the report (group tabs between USERS and the mailbox tabs)
+        $tabOrder = @{ 'tab.overview' = 0; 'tab.users' = 1; 'tab.mbxOnPrem' = 3; 'tab.mbx365' = 4; 'tab.onedrive' = 5; 'tab.mfa' = 6; 'tab.licenses' = 7; 'tab.sync' = 8; 'tab.attention' = 9; 'tab.history' = 10 }
+        $rankOf = { param($baseName) $tabKey = $tabNames[($baseName -replace '_\d{4}-\d{2}-\d{2}$', '')]; if ($tabKey -and $tabOrder.ContainsKey($tabKey)) { $tabOrder[$tabKey] } else { 2 } }
+
+        if ((Test-Path -LiteralPath $Path -PathType Container) -or $Path -like '*.csv') {
+            $isCsv = $true
+            $folder = if (Test-Path -LiteralPath $Path -PathType Container) { $Path } else { Split-Path -Parent $Path }
+            # a file of a HybridScope_CSV_* export opens the whole export; any other CSV opens alone
+            $files = if ((Test-Path -LiteralPath $Path -PathType Container) -or (Split-Path -Leaf $folder) -like 'HybridScope_CSV_*') {
+                @(Get-ChildItem -LiteralPath $folder -Filter '*.csv' | Sort-Object @{ Expression = { & $rankOf $_.BaseName } }, LastWriteTime, Name)
+            }
+            else { @(Get-Item -LiteralPath $Path) }
+            foreach ($file in $files) {
+                $sheets.Add(@{ Name = ($file.BaseName -replace '_\d{4}-\d{2}-\d{2}$', ''); Rows = @(Import-Csv -LiteralPath $file.FullName -Delimiter ';' -Encoding UTF8) })
+            }
+        }
+        else {
+            Import-Module ImportExcel -ErrorAction Stop
+            # read a copy: the file may be open in Excel
+            $copy = Join-Path ([IO.Path]::GetTempPath()) ("HybridScope_import_{0}.xlsx" -f [guid]::NewGuid().ToString('N'))
+            Copy-Item -LiteralPath $Path -Destination $copy -Force
+            try {
+                foreach ($info in @(Get-ExcelSheetInfo -Path $copy | Sort-Object Index)) {
+                    $sheets.Add(@{ Name = "$($info.Name)"; Rows = @(Import-Excel -Path $copy -WorksheetName $info.Name) })
+                }
+            }
+            finally { Remove-Item -LiteralPath $copy -Force -ErrorAction SilentlyContinue }
+        }
+
+        $notePrefixes = @(foreach ($lang in $script:HS_Str.Keys) { foreach ($key in 'xl.generated', 'xl.legend', 'xl.warning') { ($script:HS_Str[$lang][$key] -split '\{0\}')[0] } }) | Where-Object { $_ } | Select-Object -Unique
+        $warningPrefixes = @(foreach ($lang in $script:HS_Str.Keys) { ($script:HS_Str[$lang]['xl.warning'] -split '\{0\}')[0] }) | Select-Object -Unique
+
+        $tables = [ordered]@{}; $overviewName = ''; $metricFlags = @(); $generated = $null; $sources = ''
+        $warnings = [System.Collections.Generic.List[string]]::new()
+        foreach ($sheet in $sheets) {
+            $rows = @($sheet.Rows | Where-Object { $_ })
+            if (-not $rows.Count) { continue }
+            $key = $tabNames[$sheet.Name]
+            $name = if ($key) { T $key } else { $sheet.Name }
+            $headers = @($rows[0].PSObject.Properties.Name)
+
+            if ($key -eq 'tab.overview') {
+                # metric rows; the lines under the table are notes (generated on / legend / warnings)
+                $overviewName = $name
+                $kept = [System.Collections.Generic.List[object]]::new(); $flags = [System.Collections.Generic.List[object]]::new()
+                $inNotes = $false
+                foreach ($row in $rows) {
+                    $first = "$($row.($headers[0]))"
+                    $others = [System.Collections.Generic.List[object]]::new()
+                    for ($i = 1; $i -lt $headers.Count; $i++) { $cellValue = ConvertFrom-HSCell $row.($headers[$i]) '' -FromCsv:$isCsv -Number; $others.Add($cellValue) }
+                    $empty = -not @($others | Where-Object { $null -ne $_ }).Count
+                    if ($empty -and -not $first) { continue }
+                    if ($empty -and @($notePrefixes | Where-Object { $first.StartsWith($_) }).Count) { $inNotes = $true }
+                    if ($inNotes) {
+                        if ($first -match '(\d{4}-\d{2}-\d{2} \d{2}:\d{2})') { if (-not $generated) { $generated = [datetime]::ParseExact($Matches[1], 'yyyy-MM-dd HH:mm', $null) }; if ($first -match ' - (.+)$') { $sources = $Matches[1] } }
+                        foreach ($prefix in $warningPrefixes) { if ($first.StartsWith($prefix)) { $warnings.Add($first.Substring($prefix.Length)) } }
+                        continue
+                    }
+                    $line = [ordered]@{ $headers[0] = $first }
+                    for ($i = 1; $i -lt $headers.Count; $i++) { $line[$headers[$i]] = $others[$i - 1] }
+                    $kept.Add([pscustomobject]$line)
+                    $flags.Add([pscustomobject]@{ IsSection = $empty; IsGB = ($first -like '*(GB)*') })
+                }
+                $tables[$name] = @($kept); $metricFlags = @($flags)
+                Write-HSLog (T 'log.importSheet' @($name, $kept.Count))
+                continue
+            }
+
+            $props = @(foreach ($header in $headers) { Resolve-HSHeader $header $headers })
+            $converted = @(foreach ($row in $rows) {
+                    $line = [ordered]@{}
+                    for ($i = 0; $i -lt $headers.Count; $i++) { $line[$props[$i]] = ConvertFrom-HSCell $row.($headers[$i]) $props[$i] -FromCsv:$isCsv }
+                    if (@($line.Values | Where-Object { $null -ne $_ }).Count) { [pscustomobject]$line }
+                })
+            if (-not $converted.Count) { continue }
+            $tables[$name] = $converted
+            Write-HSLog (T 'log.importSheet' @($name, $converted.Count))
+        }
+        if (-not $tables.Count) { throw (T 'err.importEmpty' $Path) }
+
+        # the merged user list: the USERS tab, or the first table that looks like one (single-tab exports)
+        $users = $tables[(T 'tab.users')]
+        if (-not $users) { foreach ($tableName in $tables.Keys) { $first = @($tables[$tableName])[0]; if ($first.PSObject.Properties['Username'] -and $first.PSObject.Properties['Status']) { $users = $tables[$tableName]; break } } }
+        $users = @($users)
+        $sample = if ($users.Count) { @($users[0].PSObject.Properties.Name) } else { @() }
+
+        if (-not $generated -and (Split-Path -Leaf $Path) -match '(\d{4}-\d{2}-\d{2})_(\d{2})(\d{2})') { $generated = [datetime]::ParseExact("$($Matches[1]) $($Matches[2]):$($Matches[3])", 'yyyy-MM-dd HH:mm', $null) }
+        if (-not $generated) { $generated = (Get-Item -LiteralPath $Path).LastWriteTime }
+
+        [pscustomobject]@{
+            Generated    = $generated
+            Tables       = $tables
+            OverviewName = $overviewName
+            MetricFlags  = $metricFlags
+            Totals       = @{ total = $users.Count }
+            Warnings     = @($warnings)
+            Sources      = $sources
+            Users        = $users
+            SyncInfo     = @{}
+            SourceFlags  = @{ AD = ($sample -contains 'OU'); M365 = ($sample -contains 'UPN'); Exch = ($sample -contains 'MailboxOnPrem_MB') }
+            Imported     = $true
+            ImportPath   = $Path
+        }
     }
 
     function ConvertTo-HSDataTable {
@@ -1796,7 +2623,7 @@ if ($Auto) {
             $rows = @(Get-HSDataset -Cfg $cfg -Name $Only)
             if ($PassThru) { $rows }
             else {
-                $tabKeys = @{ MFA = 'tab.mfa'; Licenses = 'tab.licenses'; Mailbox365 = 'tab.mbx365'; OneDrive = 'tab.onedrive'; MailboxOnPrem = 'tab.mbxOnPrem' }
+                $tabKeys = @{ MFA = 'tab.mfa'; Licenses = 'tab.licenses'; Mailbox365 = 'tab.mbx365'; OneDrive = 'tab.onedrive'; MailboxOnPrem = 'tab.mbxOnPrem'; Sync = 'tab.sync' }
                 $data = [pscustomobject]@{
                     Generated    = Get-Date
                     Tables       = [ordered]@{ (T $tabKeys[$Only]) = $rows }
@@ -1919,6 +2746,31 @@ $xamlText = @'
     <Style TargetType="CheckBox"><Setter Property="VerticalAlignment" Value="Center"/><Setter Property="FontWeight" Value="Normal"/></Style>
   </Window.Resources>
   <DockPanel>
+    <Border DockPanel.Dock="Top" Background="#FFFFFF" BorderBrush="#DDE3EA" BorderThickness="0,0,0,1">
+      <Menu x:Name="mainMenu" Background="Transparent" Padding="4,1">
+        <MenuItem x:Name="miFile" Header="{{menu.file}}">
+          <MenuItem x:Name="miOpen" Header="{{menu.open}}" InputGestureText="Ctrl+O"/>
+          <Separator/>
+          <MenuItem x:Name="miExportXlsx" Header="{{btn.xlsx}}"/>
+          <MenuItem x:Name="miExportCsv" Header="{{btn.csvall}}"/>
+          <MenuItem x:Name="miExportTab" Header="{{btn.tab}}"/>
+          <Separator/>
+          <MenuItem x:Name="miFolder" Header="{{btn.folder}}"/>
+          <Separator/>
+          <MenuItem x:Name="miExit" Header="{{menu.exit}}" InputGestureText="Alt+F4"/>
+        </MenuItem>
+        <MenuItem x:Name="miHelp" Header="{{menu.help}}">
+          <MenuItem x:Name="miDocs" Header="{{menu.docs}}" InputGestureText="F1"/>
+          <MenuItem x:Name="miUpdates" Header="{{menu.updates}}"/>
+          <MenuItem x:Name="miIssue" Header="{{menu.issue}}"/>
+          <Separator/>
+          <MenuItem x:Name="miSponsor" Header="{{menu.sponsor}}"/>
+          <MenuItem x:Name="miCoffee" Header="{{menu.coffee}}"/>
+          <Separator/>
+          <MenuItem x:Name="miAbout" Header="{{menu.about}}"/>
+        </MenuItem>
+      </Menu>
+    </Border>
     <Border DockPanel.Dock="Top" Background="#0E2A47" Padding="16,10">
       <DockPanel>
         <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" VerticalAlignment="Center">
@@ -2022,6 +2874,9 @@ $xamlText = @'
     <Border DockPanel.Dock="Bottom" Background="#0E2A47" Padding="10,4">
       <DockPanel>
         <ProgressBar x:Name="prg" Width="180" Height="10" DockPanel.Dock="Right" Foreground="#4FA3F7" Background="#22406E" BorderThickness="0"/>
+        <TextBlock DockPanel.Dock="Right" Margin="16,0,16,0" Foreground="#9FB4D9" FontSize="11">
+          <Run x:Name="runVersion"/> <Run Text="{{status.by}}"/> <Hyperlink x:Name="lnkStatusAuthor" Foreground="#CFE0F5" TextDecorations="{x:Null}" Cursor="Hand">Thonno</Hyperlink>
+        </TextBlock>
         <TextBlock x:Name="lblStatus" Foreground="White" Text="{{st.ready}}" TextTrimming="CharacterEllipsis"/>
       </DockPanel>
     </Border>
@@ -2199,7 +3054,7 @@ $CoreText = $Core.ToString()
 $script:ADCred = $null; $script:ExCred = $null; $script:Data = $null; $script:Job = $null; $script:AfterInstall = $null
 
 function Set-Busy([bool]$busy, [string]$text) {
-    foreach ($control in 'btn365', 'btnSignOut', 'btnExch', 'btnAD', 'btnLoad', 'cmbGroupBy', 'rbCloud', 'rbFullHybrid', 'rbHybrid', 'rbOnPrem', 'rbAD') { $ui[$control].IsEnabled = -not $busy }
+    foreach ($control in 'btn365', 'btnSignOut', 'btnExch', 'btnAD', 'btnLoad', 'cmbGroupBy', 'rbCloud', 'rbFullHybrid', 'rbHybrid', 'rbOnPrem', 'rbAD', 'miUpdates') { $ui[$control].IsEnabled = -not $busy }
     $ui.btnStop.IsEnabled = $busy
     foreach ($control in 'btnXlsx', 'btnCsvAll', 'btnTab') { $ui[$control].IsEnabled = (-not $busy) -and ($null -ne $script:Data) }
     $ui.prg.IsIndeterminate = $busy
@@ -2284,19 +3139,22 @@ $timer.Add_Tick({
 $timer.Start()
 
 # ---------------------------------------------------------------- tabs
+function Set-HSRowFilter([System.Data.DataTable]$Table, [string]$Text) {
+    # DataView filter: rows where any column contains Text
+    $dv = $Table.DefaultView
+    $Text = "$Text".Trim()
+    if (-not $Text) { $dv.RowFilter = ''; return }
+    $pattern = $Text.Replace("'", "''")
+    $pattern = [regex]::Replace($pattern, '[\[\]\*%]', [System.Text.RegularExpressions.MatchEvaluator] { param($match) "[$($match.Value)]" })
+    $parts = foreach ($column in $Table.Columns) { "CONVERT([$($column.ColumnName.Replace(']','\]'))], 'System.String') LIKE '%$pattern%'" }
+    try { $dv.RowFilter = ($parts -join ' OR ') } catch { }
+}
+
 function Set-HSFilter {
     $tab = $ui.tabs.SelectedItem
     if (-not $tab -or -not $tab.Tag) { $ui.lblCount.Text = ''; return }
-    $dv = $tab.Tag.DefaultView
-    $filterText = $ui.txtFilter.Text.Trim()
-    if (-not $filterText) { $dv.RowFilter = '' }
-    else {
-        $pattern = $filterText.Replace("'", "''")
-        $pattern = [regex]::Replace($pattern, '[\[\]\*%]', [System.Text.RegularExpressions.MatchEvaluator] { param($match) "[$($match.Value)]" })
-        $parts = foreach ($column in $tab.Tag.Columns) { "CONVERT([$($column.ColumnName.Replace(']','\]'))], 'System.String') LIKE '%$pattern%'" }
-        try { $dv.RowFilter = ($parts -join ' OR ') } catch { }
-    }
-    $ui.lblCount.Text = T 'lbl.rows' @($dv.Count, $tab.Tag.Rows.Count)
+    Set-HSRowFilter $tab.Tag $ui.txtFilter.Text
+    $ui.lblCount.Text = T 'lbl.rows' @($tab.Tag.DefaultView.Count, $tab.Tag.Rows.Count)
 }
 
 function Show-HSTables {
@@ -2336,6 +3194,15 @@ function Show-HSTables {
                     else { $evtArgs.Row.FontWeight = 'Normal'; $evtArgs.Row.Background = $null }
                 })
         }
+        if (@($OverviewName, (T 'tab.licenses'), (T 'tab.history')) -notcontains $name) {
+            # double-click on a user row: user card
+            $grid.Add_MouseDoubleClick({
+                    param($source, $evtArgs)
+                    $item = $null
+                    try { $item = $evtArgs.OriginalSource.DataContext } catch { }
+                    if ($item -is [System.Data.DataRowView]) { Show-HSUserCard $item }
+                })
+        }
         $grid.ItemsSource = $dt.DefaultView
         $tab = New-Object System.Windows.Controls.TabItem
         $hdr = New-Object System.Windows.Controls.TextBlock   # TextBlock: underscores are not eaten as access keys
@@ -2349,6 +3216,252 @@ function Show-HSTables {
     $ui.lblEmpty.Visibility = 'Collapsed'
     $ui.tabs.SelectedIndex = 0
     Set-HSFilter
+}
+
+# ---------------------------------------------------------------- user card (double-click on a user)
+$script:CardXaml = @'
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Height="760" Width="1240" WindowStartupLocation="CenterOwner" Background="#F3F4F6" FontFamily="Segoe UI" FontSize="12">
+  <DockPanel>
+    <Border DockPanel.Dock="Top" Background="#0E2A47" Padding="16,10">
+      <DockPanel>
+        <Button x:Name="btnCopy" Content="{{card.copy}}" DockPanel.Dock="Right" VerticalAlignment="Center" Padding="14,4" Background="White" BorderBrush="#B8C2D0" Cursor="Hand"/>
+        <StackPanel VerticalAlignment="Center">
+          <TextBlock x:Name="lblName" Foreground="White" FontSize="20" FontWeight="SemiBold"/>
+          <TextBlock x:Name="lblSub" Foreground="#9FB4D9" TextTrimming="CharacterEllipsis"/>
+        </StackPanel>
+      </DockPanel>
+    </Border>
+    <Grid Margin="10">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="460"/>
+        <ColumnDefinition Width="10"/>
+        <ColumnDefinition Width="*"/>
+      </Grid.ColumnDefinitions>
+      <Border Background="White" BorderBrush="#DDE3EA" BorderThickness="1">
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+          <StackPanel x:Name="pnlInfo" Margin="14,2,14,14"/>
+        </ScrollViewer>
+      </Border>
+      <Border Grid.Column="2" Background="White" BorderBrush="#DDE3EA" BorderThickness="1" Padding="12,10">
+        <DockPanel>
+          <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+            <Button x:Name="btnReload" Content="{{card.reload}}" DockPanel.Dock="Right" Padding="12,3" Margin="8,0,0,0" Background="White" BorderBrush="#B8C2D0" Cursor="Hand"/>
+            <TextBox x:Name="txtGrpFilter" Width="200" Height="24" VerticalContentAlignment="Center" DockPanel.Dock="Right"/>
+            <TextBlock Text="{{card.search}}" DockPanel.Dock="Right" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="#555"/>
+            <TextBlock Text="{{card.groups}}" FontSize="14" FontWeight="SemiBold" Foreground="#0E2A47" VerticalAlignment="Center"/>
+          </DockPanel>
+          <TextBlock x:Name="lblGrp" DockPanel.Dock="Top" Foreground="#555" TextWrapping="Wrap" Margin="0,0,0,6"/>
+          <DataGrid x:Name="gridGrp" IsReadOnly="True" AutoGenerateColumns="True" HeadersVisibility="Column" GridLinesVisibility="Horizontal"
+                    CanUserAddRows="False" AlternatingRowBackground="#F5F8FC" HorizontalGridLinesBrush="#E6EAF0" ClipboardCopyMode="IncludeHeader"/>
+        </DockPanel>
+      </Border>
+    </Grid>
+  </DockPanel>
+</Window>
+'@
+$script:CardTarget = $null
+
+function Format-HSCardValue($Value) {
+    if ($null -eq $Value -or $Value -is [DBNull]) { return '' }
+    if ($Value -is [datetime]) { return $Value.ToString('yyyy-MM-dd HH:mm') }
+    if ($Value -is [double]) { return $Value.ToString('N2') }
+    "$Value".Trim()
+}
+
+function Add-HSCardSection {
+    # Title + label / value grid; values are read-only text boxes, so they can be selected and copied.
+    # Pairs: ordered hashtable label -> value. Empty values are left out; nothing is shown if all are empty.
+    param($Card, [string]$Title, $Pairs)
+    $items = [System.Collections.Generic.List[object]]::new()
+    foreach ($label in $Pairs.Keys) { $text = Format-HSCardValue $Pairs[$label]; if ($text) { $items.Add([pscustomobject]@{ Label = $label; Text = $text }) } }
+    if (-not $items.Count) { return }
+
+    $header = New-Object System.Windows.Controls.TextBlock
+    $header.Text = $Title; $header.FontSize = 13; $header.FontWeight = 'SemiBold'
+    $header.Foreground = $Brush.ConvertFromString('#1565C0')
+    $header.Margin = New-Object System.Windows.Thickness 0, 12, 0, 4
+    [void]$Card.Info.Children.Add($header)
+
+    $grid = New-Object System.Windows.Controls.Grid
+    $col0 = New-Object System.Windows.Controls.ColumnDefinition; $col0.Width = New-Object System.Windows.GridLength 165
+    $col1 = New-Object System.Windows.Controls.ColumnDefinition; $col1.Width = New-Object System.Windows.GridLength 1, ([System.Windows.GridUnitType]::Star)
+    $grid.ColumnDefinitions.Add($col0); $grid.ColumnDefinitions.Add($col1)
+    $alert = @((T 'val.mfaNo'), (T 'val.disabled'), 'ON-PREM')
+    [void]$Card.Text.AppendLine($Title)
+    $rowIndex = 0
+    foreach ($item in $items) {
+        $grid.RowDefinitions.Add((New-Object System.Windows.Controls.RowDefinition))
+        $label = New-Object System.Windows.Controls.TextBlock
+        $label.Text = $item.Label; $label.Foreground = $Brush.ConvertFromString('#5B6B80'); $label.TextWrapping = 'Wrap'
+        $label.VerticalAlignment = 'Top'; $label.Margin = New-Object System.Windows.Thickness 0, 3, 8, 3
+        $value = New-Object System.Windows.Controls.TextBox
+        $value.Text = $item.Text; $value.IsReadOnly = $true; $value.TextWrapping = 'Wrap'
+        $value.BorderThickness = New-Object System.Windows.Thickness 0; $value.Background = [System.Windows.Media.Brushes]::Transparent
+        $value.Padding = New-Object System.Windows.Thickness 0; $value.Margin = New-Object System.Windows.Thickness 0, 3, 0, 3
+        if ($alert -contains $item.Text -or $item.Label -eq (Get-HSHeader 'SyncIssues')) { $value.Foreground = $Brush.ConvertFromString('#B42318'); $value.FontWeight = 'SemiBold' }
+        [System.Windows.Controls.Grid]::SetRow($label, $rowIndex); [System.Windows.Controls.Grid]::SetRow($value, $rowIndex)
+        [System.Windows.Controls.Grid]::SetColumn($value, 1)
+        [void]$grid.Children.Add($label); [void]$grid.Children.Add($value)
+        [void]$Card.Text.AppendLine(('  {0}: {1}' -f $item.Label, ($item.Text -replace "`r?`n", "`r`n      ")))
+        $rowIndex++
+    }
+    [void]$Card.Info.Children.Add($grid)
+}
+
+function Set-HSCardFilter($Card) {
+    if ($Card -and $Card.Table) { Set-HSRowFilter $Card.Table $Card.Filter.Text }
+}
+
+function Start-HSCardGroups($Card) {
+    # groups and roles are read on demand, in the background runspace (AD + Graph sessions live there)
+    if (-not $Card.Sam -and -not $Card.Upn) { $Card.Status.Text = ''; return }
+    if ($script:Data.Imported) { $Card.Status.Text = T 'card.imported'; return }
+    if ($script:Job) { $Card.Status.Text = T 'card.busy'; return }
+    $Card.Status.Text = T 'card.loading'
+    $script:CardTarget = $Card
+    Start-HSJob -Title (T 'card.loading') -Vars @{ CardSam = $Card.Sam; CardUpn = $Card.Upn; ADCred = $script:ADCred } -Script '$HS_Sync.Card = Get-HSUserGroup -Cfg $Cfg -Sam $CardSam -Upn $CardUpn -ADCredential $ADCred' -OnDone {
+        param($out, $err)
+        $card = $script:CardTarget; $script:CardTarget = $null
+        if (-not $card -or -not $card.Window.IsLoaded) { return }
+        if ($err) { $card.Status.Text = T 'err.generic' $err.Message; return }
+        $result = $HS_Sync.Card
+        $card.Table = ConvertTo-HSDataTable -Rows @($result.Rows)
+        $card.Grid.ItemsSource = $card.Table.DefaultView
+        Set-HSCardFilter $card
+        $card.Status.Text = (@(T 'card.count' @($result.AD, $result.Entra, $result.Roles)) + @($result.Errors)) -join "`n"
+    }
+}
+
+function Show-HSUserCard($RowView) {
+    <#
+        One window with everything HybridScope knows about the user of the double-clicked row:
+        identity, AD, Microsoft 365, mailbox, OneDrive, MFA, sync; groups and roles load in the background.
+    #>
+    if (-not $script:Data -or -not $script:Data.Users) { return }
+    $table = $RowView.Row.Table
+    $cell = { param($prop) $hdr = Get-HSHeader $prop; if ($table.Columns.Contains($hdr) -and -not ($RowView[$hdr] -is [DBNull])) { "$($RowView[$hdr])" } else { '' } }
+    $sam = & $cell 'Username'; $upn = & $cell 'UPN'
+    if (-not $sam -and -not $upn) { return }
+    $user = $null
+    if ($upn) { $user = @($script:Data.Users | Where-Object { $_.UPN -eq $upn })[0] }
+    if (-not $user -and $sam) { $user = @($script:Data.Users | Where-Object { $_.Username -eq $sam })[0] }
+    if (-not $user) { Show-Msg (T 'card.notFound') 'HybridScope' | Out-Null; return }
+
+    $lookup = {
+        param([string]$TabKey, [string]$Prop, [string]$Value)
+        if (-not $Value) { return $null }
+        $rows = $script:Data.Tables[(T $TabKey)]
+        if (-not $rows) { return $null }
+        @($rows | Where-Object { "$($_.$Prop)" -eq $Value })[0]
+    }
+    $src = $script:Data.SourceFlags
+    $mfaRow = & $lookup 'tab.mfa' 'UPN' $user.UPN
+    $onPremRow = & $lookup 'tab.mbxOnPrem' 'Username' $(if ($user.OU) { $user.Username })
+    $exoRow = & $lookup 'tab.mbx365' 'UPN' $user.UPN
+    $odRow = & $lookup 'tab.onedrive' 'UPN' $user.UPN
+    $syncInfo = if ($script:Data.SyncInfo) { $script:Data.SyncInfo["$($user.Username)|$($user.UPN)"] } else { $null }
+    $syncRows = @()
+    if ($script:Data.Tables.Contains((T 'tab.sync'))) {
+        $syncRows = @($script:Data.Tables[(T 'tab.sync')] | Where-Object { $_.Category -ne (T 'sync.c0') -and (($user.OU -and $_.Username -eq $user.Username) -or ($user.UPN -and $_.UPN -eq $user.UPN)) })
+    }
+
+    $xamlText = [regex]::Replace($script:CardXaml, '\{\{([\w\.]+)\}\}', [System.Text.RegularExpressions.MatchEvaluator] {
+            param($match) [System.Security.SecurityElement]::Escape((T $match.Groups[1].Value))
+        })
+    [xml]$cardXml = $xamlText
+    $win = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $cardXml))
+    $card = @{
+        Window = $win; Info = $win.FindName('pnlInfo'); Grid = $win.FindName('gridGrp'); Status = $win.FindName('lblGrp')
+        Filter = $win.FindName('txtGrpFilter'); Text = New-Object System.Text.StringBuilder; Table = $null
+        Sam = if ($src.AD -and $user.OU) { "$($user.Username)" } else { '' }
+        Upn = if ($src.M365 -and $user.UPN) { "$($user.UPN)" } else { '' }
+    }
+    $win.Tag = $card
+    $win.Owner = $Window
+
+    $displayName = ("$($user.FirstName) $($user.LastName)").Trim(); if (-not $displayName) { $displayName = if ($user.UPN) { $user.UPN } else { $user.Username } }
+    $win.Title = "$displayName - HybridScope"
+    $win.FindName('lblName').Text = $displayName
+    $sub = (@($user.Username, $user.UPN, $user.Status, $user.Origin, $user.Group) | Where-Object { $_ } | Select-Object -Unique) -join '  ·  '
+    $win.FindName('lblSub').Text = $sub
+    [void]$card.Text.AppendLine($displayName); [void]$card.Text.AppendLine($sub)
+
+    $h = { param($prop) Get-HSHeader $prop }
+    Add-HSCardSection $card (T 'card.sec.identity') ([ordered]@{
+            (& $h 'Username') = $user.Username; (& $h 'UPN') = $user.UPN; (& $h 'Status') = $user.Status
+            (& $h 'Origin') = $user.Origin; (& $h 'Group') = $user.Group; 'OU' = $user.OU
+        })
+    if ($src.AD -and $user.OU) {
+        Add-HSCardSection $card (T 'card.sec.ad') ([ordered]@{
+                (& $h 'AD_LastLogon') = $user.AD_LastLogon; (& $h 'PasswordLastSet') = $user.PasswordLastSet
+                'AD_UPN' = $(if ($syncInfo) { $syncInfo.AD_UPN })
+            })
+    }
+    if ($src.M365) {
+        Add-HSCardSection $card (T 'card.sec.m365') ([ordered]@{
+                (& $h 'M365_LastSignIn') = $user.M365_LastSignIn
+                (& $h 'Licenses') = ("$($user.Licenses)" -replace ', ', "`n")
+            })
+    }
+    Add-HSCardSection $card (T 'card.sec.mailbox') ([ordered]@{
+            'Location' = $user.Location; (& $h 'MailboxType') = $user.MailboxType; (& $h 'MailboxSource') = $user.MailboxSource
+            (& $h 'Mailbox365_MB') = $(if ($user.Mailbox365_MB) { $user.Mailbox365_MB }); (& $h 'MailboxOnPrem_MB') = $(if ($user.MailboxOnPrem_MB) { $user.MailboxOnPrem_MB })
+        })
+    if ($onPremRow) {
+        Add-HSCardSection $card (T 'gb.exch') ([ordered]@{
+                'Email' = $onPremRow.Email; 'Database' = $onPremRow.Database; (& $h 'Items') = $onPremRow.Items
+                (& $h 'Deleted_MB') = $onPremRow.Deleted_MB; (& $h 'LastLogon') = $onPremRow.LastLogon
+                (& $h 'Quota') = $onPremRow.Quota; (& $h 'HiddenFromGAL') = $onPremRow.HiddenFromGAL
+            })
+    }
+    if ($exoRow) {
+        Add-HSCardSection $card 'Exchange Online' ([ordered]@{
+                (& $h 'Items') = $exoRow.Items; (& $h 'Deleted_MB') = $exoRow.Deleted_MB; (& $h 'Archive') = $exoRow.Archive
+                (& $h 'LastActivity') = $exoRow.LastActivity; (& $h 'WarningQuota_GB') = $exoRow.WarningQuota_GB; (& $h 'SendQuota_GB') = $exoRow.SendQuota_GB
+            })
+    }
+    if ($odRow) {
+        Add-HSCardSection $card (T 'card.sec.onedrive') ([ordered]@{
+                (& $h 'OneDrive_MB') = $odRow.Size_MB; 'Quota_GB' = $odRow.Quota_GB; (& $h 'Files') = $odRow.Files
+                (& $h 'ActiveFiles') = $odRow.ActiveFiles; (& $h 'LastActivity') = $odRow.LastActivity; 'URL' = $odRow.URL
+            })
+    }
+    if ($src.M365) {
+        Add-HSCardSection $card (T 'card.sec.mfa') ([ordered]@{
+                (& $h 'MFA_Status') = $user.MFA_Status; (& $h 'MFA_DefaultMethod') = $user.MFA_DefaultMethod
+                (& $h 'MFA_Methods') = ("$($user.MFA_Methods)" -replace ', ', "`n"); (& $h 'MFA_PerUser') = $user.MFA_PerUser
+                (& $h 'MFA_Capable') = $(if ($mfaRow) { $mfaRow.MFA_Capable }); (& $h 'SSPR_Registered') = $(if ($mfaRow) { $mfaRow.SSPR_Registered })
+                'Admin' = $(if ($mfaRow) { $mfaRow.Admin })
+            })
+    }
+    if ($syncInfo -or $syncRows.Count) {
+        Add-HSCardSection $card (T 'card.sec.sync') ([ordered]@{
+                (& $h 'SyncIssues') = $user.SyncIssues
+                (& $h 'Details') = (@($syncRows | ForEach-Object { $_.Details }) -join "`n")
+                (& $h 'Anchor_AD') = $(if ($syncInfo) { $syncInfo.Anchor_AD }); (& $h 'AnchorSource') = $(if ($syncInfo) { $syncInfo.AnchorSource })
+                'ImmutableId' = $(if ($syncInfo) { $syncInfo.ImmutableId }); (& $h 'SyncEnabled') = $(if ($syncInfo) { $syncInfo.SyncEnabled })
+                (& $h 'LastSync') = $(if ($syncInfo) { $syncInfo.LastSync })
+            })
+    }
+    Add-HSCardSection $card (T 'card.sec.notes') ([ordered]@{ (& $h 'Notes') = ("$($user.Notes)" -replace '; ', "`n") })
+
+    $win.FindName('txtGrpFilter').Add_TextChanged({ param($source, $evtArgs) Set-HSCardFilter ([System.Windows.Window]::GetWindow($source)).Tag })
+    $win.FindName('btnReload').Add_Click({ param($source, $evtArgs) Start-HSCardGroups ([System.Windows.Window]::GetWindow($source)).Tag })
+    $win.FindName('btnCopy').Add_Click({
+            param($source, $evtArgs)
+            $c = ([System.Windows.Window]::GetWindow($source)).Tag
+            $text = $c.Text.ToString()
+            if ($c.Table -and $c.Table.Rows.Count) {
+                $text += "`r`n" + (T 'card.groups') + "`r`n"
+                foreach ($groupRow in $c.Table.DefaultView) { $text += '  ' + (@($groupRow.Row.ItemArray | ForEach-Object { "$_" }) -join ' | ') + "`r`n" }
+            }
+            try { [System.Windows.Clipboard]::SetText($text) } catch { }
+        })
+    $win.Add_KeyDown({ param($source, $evtArgs) if ($evtArgs.Key -eq 'Escape') { $source.Close() } })
+    $win.Show()
+    Start-HSCardGroups $card
 }
 
 $ui.tabs.Add_SelectionChanged({ param($source, $evtArgs) if ($evtArgs.OriginalSource -eq $ui.tabs) { Set-HSFilter } })
@@ -2487,6 +3600,7 @@ $HS_Sync.DataTables = $tables
             $script:Data = $HS_Sync.Data
             Show-HSTables $HS_Sync.DataTables $script:Data.OverviewName
             $ui.lblGenerated.Text = T 'lbl.generated' $script:Data.Generated.ToString('yyyy-MM-dd HH:mm')
+            $ui.lblGenerated.ToolTip = $null
             Set-Busy $false (T 'st.loaded' $script:Data.Totals['total'])
             if ($script:Data.Warnings.Count) { Show-Msg (T 'msg.loadWarn' ($script:Data.Warnings -join "`n- ")) (T 'title.warnings') 'OK' 'Warning' | Out-Null }
         }
@@ -2535,7 +3649,7 @@ $ui.btnTab.Add_Click({
             if ($dlg.FileName -like '*.xlsx') {
                 Import-Module ImportExcel -ErrorAction Stop
                 if (Test-Path $dlg.FileName) { Remove-Item $dlg.FileName -Force }
-                $rows | Export-Excel -Path $dlg.FileName -WorksheetName (Get-HSSheetName $name) -TableName 'T1' -TableStyle Medium2 -AutoSize -FreezeTopRow -BoldTopRow
+                $rows | Export-Excel -Path $dlg.FileName -WorksheetName (Get-HSSheetName $name) -TableName 'HS_1' -TableStyle Medium2 -AutoSize -FreezeTopRow -BoldTopRow
             }
             else { $rows | Export-Csv -Path $dlg.FileName -NoTypeInformation -Encoding UTF8 -Delimiter ';' }
             $ui.lblStatus.Text = T 'st.exported' @($rows.Count, $dlg.FileName)
@@ -2544,6 +3658,191 @@ $ui.btnTab.Add_Click({
     })
 
 $ui.btnFolder.Add_Click({ Invoke-Item (Get-HSOutputFolder $cfg) })
+
+# ---------------------------------------------------------------- menu, about, updates
+function Open-HSLink([string]$Url) { try { Start-Process $Url } catch { Show-Msg $_.Exception.Message (T 'title.error') 'OK' 'Error' | Out-Null } }
+function Invoke-HSButton([string]$Name) { $ui[$Name].RaiseEvent((New-Object System.Windows.RoutedEventArgs ([System.Windows.Controls.Button]::ClickEvent))) }
+
+$script:DocsUrl = if ($cfg.Language -eq 'it') { "$($HS_Links.Repo)/blob/main/README.it.md" } else { "$($HS_Links.Repo)#readme" }
+$ui.runVersion.Text = "HybridScope $HS_Version"
+$ui.lnkStatusAuthor.Add_Click({ Open-HSLink $HS_Links.Author })
+$ui.lnkStatusAuthor.ToolTip = $HS_Links.Author
+
+# the export entries follow the state of the matching buttons (enabled once data is loaded)
+$script:MenuButtons = @{ miExportXlsx = 'btnXlsx'; miExportCsv = 'btnCsvAll'; miExportTab = 'btnTab' }
+$ui.miFile.Add_SubmenuOpened({ foreach ($item in $script:MenuButtons.Keys) { $ui[$item].IsEnabled = $ui[$script:MenuButtons[$item]].IsEnabled } })
+$ui.miExportXlsx.Add_Click({ Invoke-HSButton 'btnXlsx' })
+$ui.miExportCsv.Add_Click({ Invoke-HSButton 'btnCsvAll' })
+$ui.miExportTab.Add_Click({ Invoke-HSButton 'btnTab' })
+$ui.miFolder.Add_Click({ Invoke-HSButton 'btnFolder' })
+$ui.miExit.Add_Click({ $Window.Close() })
+$ui.miDocs.Add_Click({ Open-HSLink $script:DocsUrl })
+$ui.miIssue.Add_Click({ Open-HSLink $HS_Links.Issues })
+$ui.miSponsor.Add_Click({ Open-HSLink $HS_Links.Sponsor })
+$ui.miCoffee.Add_Click({ Open-HSLink $HS_Links.Coffee })
+$Window.Add_KeyDown({
+        param($source, $evtArgs)
+        if ($evtArgs.Key -eq 'F1') { Open-HSLink $script:DocsUrl }
+        elseif ($evtArgs.Key -eq 'O' -and [System.Windows.Input.Keyboard]::Modifiers -eq 'Control') { $evtArgs.Handled = $true; Open-HSReport }
+    })
+
+# ---------------------------------------------------------------- open a saved report (File > Open, Ctrl+O, drag & drop)
+function Open-HSReport([string]$Path) {
+    if ($script:Job) { return }
+    if (-not $Path) {
+        $dlg = New-Object Microsoft.Win32.OpenFileDialog
+        $dlg.Filter = T 'dlg.open'
+        $dlg.Title = T 'title.import'
+        $dlg.InitialDirectory = Get-HSOutputFolder $cfg
+        if (-not $dlg.ShowDialog()) { return }
+        $Path = $dlg.FileName
+    }
+    $ui.expLog.IsExpanded = $true
+    Start-HSJob -Title (T 'job.import') -Vars @{ ImportPath = $Path } -Script @'
+$data = Import-HSReport -Path $ImportPath
+$tables = [ordered]@{}
+foreach ($tabName in $data.Tables.Keys) { $tables[$tabName] = ConvertTo-HSDataTable -Rows @($data.Tables[$tabName]) -NoLocalize:($tabName -eq $data.OverviewName) }
+$HS_Sync.Data = $data
+$HS_Sync.DataTables = $tables
+'@ -OnDone {
+        param($out, $err)
+        if ($err) { Show-Msg $err.Message (T 'title.import') 'OK' 'Error' | Out-Null; return }
+        $script:Data = $HS_Sync.Data
+        Show-HSTables $HS_Sync.DataTables $script:Data.OverviewName
+        $ui.lblGenerated.Text = T 'lbl.imported' @($script:Data.Generated.ToString('yyyy-MM-dd HH:mm'), (Split-Path -Leaf $script:Data.ImportPath))
+        $ui.lblGenerated.ToolTip = $script:Data.ImportPath
+        Set-Busy $false (T 'st.imported' $script:Data.Totals['total'])
+    }
+}
+$ui.miOpen.Add_Click({ Open-HSReport })
+# drop a report (.xlsx / .csv) or a HybridScope_CSV_* folder anywhere on the window
+$Window.AllowDrop = $true
+$Window.Add_PreviewDragOver({
+        param($source, $evtArgs)
+        $evtArgs.Effects = if ($evtArgs.Data.GetDataPresent([System.Windows.DataFormats]::FileDrop) -and -not $script:Job) { 'Copy' } else { 'None' }
+        $evtArgs.Handled = $true
+    })
+$Window.Add_PreviewDrop({
+        param($source, $evtArgs)
+        $dropped = @($evtArgs.Data.GetData([System.Windows.DataFormats]::FileDrop))
+        $evtArgs.Handled = $true
+        if ($dropped.Count) { Open-HSReport "$($dropped[0])" }
+    })
+
+function Start-HSUpdateCheck {
+    # GitHub is contacted only here, when the user asks
+    if ($script:Job) { return }
+    Start-HSJob -Title (T 'upd.checking') -Vars @{ HSRepo = $HS_Repo } -Script 'Get-HSLatestRelease -Repo $HSRepo' -OnDone {
+        param($out, $err)
+        if ($err) {
+            if ((Show-Msg (T 'upd.error' $err.Message) (T 'title.updates') 'YesNo' 'Warning') -eq 'Yes') { Open-HSLink $HS_Links.Releases }
+            return
+        }
+        $latest = @($out)[-1]
+        $cmp = Compare-HSVersion $latest.Version $HS_Version
+        if ($cmp -gt 0) {
+            if ((Show-Msg (T 'upd.new' @($latest.Version, $HS_Version)) (T 'title.updates') 'YesNo' 'Information') -eq 'Yes') { Open-HSLink $(if ($latest.Url) { $latest.Url } else { $HS_Links.Releases }) }
+        }
+        elseif ($cmp -lt 0) { Show-Msg (T 'upd.ahead' @($HS_Version, $latest.Version)) (T 'title.updates') | Out-Null }
+        else { Show-Msg (T 'upd.latest' $HS_Version) (T 'title.updates') | Out-Null }
+        $ui.lblStatus.Text = T 'st.ready'
+    }
+}
+$ui.miUpdates.Add_Click({ Start-HSUpdateCheck })
+
+$script:AboutXaml = @'
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="{{about.title}}" Width="540" SizeToContent="Height" ResizeMode="NoResize" ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner" Background="White" FontFamily="Segoe UI" FontSize="12">
+  <Window.Resources>
+    <Style x:Key="Pill" TargetType="Button">
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Margin" Value="0,0,8,0"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="bd" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="14" Padding="14,5">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="bd" Property="Opacity" Value="0.85"/></Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+    <Style TargetType="Hyperlink">
+      <Setter Property="Foreground" Value="#1565C0"/>
+      <Setter Property="TextDecorations" Value="{x:Null}"/>
+      <Setter Property="Cursor" Value="Hand"/>
+    </Style>
+  </Window.Resources>
+  <StackPanel>
+    <Border Background="#0E2A47" Padding="26,20">
+      <StackPanel>
+        <TextBlock Text="HybridScope" Foreground="White" FontSize="28" FontWeight="SemiBold"/>
+        <TextBlock x:Name="lblVersion" Foreground="#9FB4D9" FontSize="13" Margin="0,2,0,0"/>
+      </StackPanel>
+    </Border>
+    <StackPanel Margin="26,18,26,0">
+      <TextBlock Text="{{about.desc}}" TextWrapping="Wrap" Foreground="#0E2A47" FontSize="13.5"/>
+      <TextBlock Text="{{app.subtitle}}" Foreground="#5B6B80" Margin="0,3,0,16"/>
+      <Grid>
+        <Grid.ColumnDefinitions><ColumnDefinition Width="110"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+        <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+        <TextBlock Grid.Row="0" Text="{{about.by}}" Foreground="#5B6B80" Margin="0,3"/>
+        <TextBlock Grid.Row="0" Grid.Column="1" Margin="0,3" FontWeight="SemiBold"><Hyperlink x:Name="lnkAuthor">Thonno</Hyperlink><Run x:Name="runAuthorUrl" FontWeight="Normal" Foreground="#8A94A6"/></TextBlock>
+        <TextBlock Grid.Row="1" Text="{{about.project}}" Foreground="#5B6B80" Margin="0,3"/>
+        <TextBlock Grid.Row="1" Grid.Column="1" Margin="0,3"><Hyperlink x:Name="lnkRepo"><Run x:Name="runRepo"/></Hyperlink></TextBlock>
+        <TextBlock Grid.Row="2" Text="{{about.licenseLbl}}" Foreground="#5B6B80" Margin="0,3"/>
+        <TextBlock Grid.Row="2" Grid.Column="1" Margin="0,3"><Hyperlink x:Name="lnkLicense">{{about.license}}</Hyperlink></TextBlock>
+        <TextBlock Grid.Row="3" Text="{{about.feedback}}" Foreground="#5B6B80" Margin="0,3"/>
+        <TextBlock Grid.Row="3" Grid.Column="1" Margin="0,3"><Hyperlink x:Name="lnkIssues">{{menu.issue}}</Hyperlink></TextBlock>
+      </Grid>
+      <TextBlock Text="{{about.support}}" TextWrapping="Wrap" Foreground="#0E2A47" Margin="0,18,0,8"/>
+      <WrapPanel>
+        <Button x:Name="btnSponsor" Style="{StaticResource Pill}" Background="#EA4AAA" BorderBrush="#EA4AAA" Foreground="White" Content="&#x2665;  {{menu.sponsor}}"/>
+        <Button x:Name="btnCoffee" Style="{StaticResource Pill}" Background="#FFDD00" BorderBrush="#E6C700" Foreground="Black" Content="&#x2615;  {{menu.coffee}}"/>
+        <Button x:Name="btnStar" Style="{StaticResource Pill}" Background="White" BorderBrush="#B8C2D0" Foreground="#0E2A47" Content="&#x2605;  {{about.star}}"/>
+      </WrapPanel>
+      <TextBlock Text="{{about.disclaimer}}" TextWrapping="Wrap" Foreground="#8A94A6" FontSize="11" Margin="0,18,0,0"/>
+      <TextBlock x:Name="lblEnv" Foreground="#8A94A6" FontSize="11" Margin="0,2,0,0"/>
+    </StackPanel>
+    <Border Background="#F3F4F6" BorderBrush="#DDE3EA" BorderThickness="0,1,0,0" Padding="26,10" Margin="0,18,0,0">
+      <DockPanel>
+        <Button x:Name="btnClose" Content="{{about.close}}" DockPanel.Dock="Right" Padding="18,4" IsCancel="True" IsDefault="True" Background="White" BorderBrush="#B8C2D0" Cursor="Hand"/>
+        <Button x:Name="btnAboutUpdates" Content="{{menu.updates}}" HorizontalAlignment="Left" Padding="12,4" Background="White" BorderBrush="#B8C2D0" Cursor="Hand"/>
+      </DockPanel>
+    </Border>
+  </StackPanel>
+</Window>
+'@
+
+function Show-HSAbout {
+    $xamlText = [regex]::Replace($script:AboutXaml, '\{\{([\w\.]+)\}\}', [System.Text.RegularExpressions.MatchEvaluator] {
+            param($match) [System.Security.SecurityElement]::Escape((T $match.Groups[1].Value))
+        })
+    [xml]$aboutXml = $xamlText
+    $about = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $aboutXml))
+    $about.Owner = $Window
+    $about.FindName('lblVersion').Text = T 'about.version' $HS_Version
+    $about.FindName('runAuthorUrl').Text = "   github.com/$HS_Author"
+    $about.FindName('runRepo').Text = "github.com/$HS_Repo"
+    $about.FindName('lblEnv').Text = 'PowerShell {0}  ·  Windows {1}' -f $PSVersionTable.PSVersion, [Environment]::OSVersion.Version
+    $about.FindName('lnkAuthor').Add_Click({ Open-HSLink $HS_Links.Author })
+    $about.FindName('lnkRepo').Add_Click({ Open-HSLink $HS_Links.Repo })
+    $about.FindName('lnkLicense').Add_Click({ Open-HSLink $HS_Links.License })
+    $about.FindName('lnkIssues').Add_Click({ Open-HSLink $HS_Links.Issues })
+    $about.FindName('btnSponsor').Add_Click({ Open-HSLink $HS_Links.Sponsor })
+    $about.FindName('btnCoffee').Add_Click({ Open-HSLink $HS_Links.Coffee })
+    $about.FindName('btnStar').Add_Click({ Open-HSLink $HS_Links.Repo })
+    $about.FindName('btnAboutUpdates').Add_Click({ param($source, $evtArgs) ([System.Windows.Window]::GetWindow($source)).Close(); Start-HSUpdateCheck })
+    $about.FindName('btnClose').Add_Click({ param($source, $evtArgs) ([System.Windows.Window]::GetWindow($source)).Close() })
+    [void]$about.ShowDialog()
+}
+$ui.miAbout.Add_Click({ Show-HSAbout })
 
 $Window.Add_Closing({
         $timer.Stop()

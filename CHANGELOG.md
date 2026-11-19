@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.5.0 - 2026-11-19
+- **User card**: double-click a user in any tab (USERS, groups, MFA, mailboxes, ATTENTION, SYNC...) to open one window with identity, AD, Microsoft 365, mailbox (on-prem and Exchange Online details), OneDrive, MFA, sync data and notes. Values can be selected; **Copy** puts the whole card on the clipboard
+- The card loads the user's **groups and roles** in the background: AD groups (direct, nested via `LDAP_MATCHING_RULE_IN_CHAIN`, primary group) and Entra groups (Microsoft 365 / security / mail-enabled security / distribution, dynamic, synced or cloud) and Entra roles, with direct vs inherited membership and a search box
+- New delegated Graph permissions for the card: `GroupMember.Read.All`, `RoleManagement.Read.Directory` (read-only). Without admin consent **Connect 365** falls back to the previous permissions and the card shows AD groups only
+- **SYNC tab** (modes with AD + Microsoft 365): AD <-> Entra ID check based on the source anchor (`ms-DS-ConsistencyGuid` / `objectGUID` vs `onPremisesImmutableId`): last sync cycle and stale sync, ImmutableId that differs from the AD anchor, synced accounts missing from AD, leftover ImmutableId on cloud accounts, AD accounts that will soft-match or conflict with a cloud account, Entra provisioning errors, UPNs that fell back to `onmicrosoft.com` (a UPN taken from `mail` / Alternate Login ID is not flagged), duplicate anchors in AD. Other domains / forests and accounts outside `SearchBase` are not flagged; custom source anchors are detected and the anchor checks skipped
+- Sync problems also appear in the USERS / group tabs (`SyncIssues` column), in ATTENTION (category 7) and in the overview
+- AD and Entra accounts are paired by sync anchor first, names as a fallback. An AD account paired by name with a cloud account that is not synced from AD now shows Origin **AD + cloud (not linked)** instead of "AD synced"
+- `-Only Sync` collects the sync check alone (AD + Graph)
+- New setting `SyncStaleHours` (default 3)
+- **Open a saved report**: File > Open report (Ctrl+O) or drag & drop. Reads a full or single-tab XLSX, a `HybridScope_CSV_*` folder or a single CSV, in English or Italian (headers and tab names are mapped back), restores dates and numbers, and shows it like live data: tabs, search, overview, re-export, user cards (groups and roles are not read for an imported report)
+- Fix: Excel tables were not created with ImportExcel 7.8 (`T1` reads as a cell address, so ImportExcel skipped the table: no style and no header filters). Tables are now named `HS_1`, `HS_2`...
+- **Menu bar**: File (exports, reports folder, exit) and Help (documentation with F1, **Check for updates**, report a problem, sponsor links, **About**)
+- **Check for updates** compares the running version with the latest GitHub release (public API, only when clicked; works behind authenticated proxies)
+- **About** window: version, author (Thonno) and project links, license, support links, environment info. The status bar shows the version and a link to the author
+- AD collection moved to `Get-HSADUser`; the AD read also returns `proxyAddresses` and `mS-DS-ConsistencyGuid` (falls back to `objectGUID` on very old schemas)
+
 ## 1.4.0 - 2026-11-17
 - **Command line without the GUI**: `-Only MFA | Licenses | Mailbox365 | OneDrive | MailboxOnPrem` collects a single dataset and contacts only the source it needs; `-PassThru` returns objects instead of writing files (English values, pipeline-friendly); `-Mode` overrides the infrastructure mode for one run
 - `-Auto` / `-Only` reuse an existing `Connect-MgGraph` session and leave it open
