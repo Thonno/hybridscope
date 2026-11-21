@@ -39,6 +39,7 @@ Chi è on-prem e chi è già nel cloud, quanto spazio occupa ogni mailbox, chi h
 - [FAQ](#faq)
 - [Roadmap](#roadmap)
 - [Sostieni il progetto](#sostieni-il-progetto)
+- [Ringraziamenti](#ringraziamenti)
 - [Licenza](#licenza)
 
 ## Funzionalità
@@ -441,13 +442,33 @@ Get-ChildItem C:\HybridScope -Recurse | Unblock-File
 
 ## Sostieni il progetto
 
-Se HybridScope ti fa risparmiare tempo, puoi sostenerne lo sviluppo:
+HybridScope è gratuito, open source e resterà così. Se HybridScope (o un altro dei miei progetti) ti fa risparmiare tempo, puoi lasciare una **donazione una tantum**: nessun abbonamento, nessun rinnovo automatico.
+
+| | Importo | Per chi |
+|---|---|---|
+| ☕ **Coffee** | $5 | Un grazie veloce |
+| 🍕 **Lunch** | $10 | Lo usi spesso e vuoi che resti gratuito, in sola lettura e open source |
+| 🛠️ **Sysadmin** | $25 | Ti ha fatto risparmiare ore, in una migrazione, un audit o una pulizia delle licenze |
+| 🏢 **Company** | $100 | Aziende e MSP che lo usano in produzione. Se vuoi, il nome della tua azienda compare nei [Ringraziamenti](#ringraziamenti) |
 
 [![Sponsor su GitHub](https://img.shields.io/badge/Sponsor-GitHub-ea4aaa?style=for-the-badge&logo=githubsponsors&logoColor=white)](https://github.com/sponsors/Thonno)
 [![Offrimi un caffè](https://img.shields.io/badge/Offrimi%20un%20caff%C3%A8-FFDD00?style=for-the-badge&logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/aascione956)
 [![Metti una stella](https://img.shields.io/github/stars/Thonno/hybridscope?style=for-the-badge&logo=github&label=Stella)](https://github.com/Thonno/hybridscope/stargazers)
 
+Non vuoi donare? Aiuta lo stesso: una ⭐, una issue con un bug o un'idea, o consigliare HybridScope a un collega.
+
 Issue e pull request sono benvenute. Per modifiche importanti apri prima una issue.
+
+## Ringraziamenti
+
+Grazie a chi sostiene HybridScope.
+
+**Aziende e MSP**
+
+<!-- Aggiungi qui le aziende del livello Company che hanno chiesto di comparire, una per riga, es.:
+- [Contoso Srl](https://www.contoso.it)
+-->
+*Ancora nessuno: la tua azienda potrebbe essere la prima.*
 
 ## Licenza
 

@@ -39,6 +39,7 @@ Who is on-prem and who is already in the cloud, how much space every mailbox use
 - [FAQ](#faq)
 - [Roadmap](#roadmap)
 - [Support the project](#support-the-project)
+- [Thanks](#thanks)
 - [License](#license)
 
 ## Features
@@ -440,13 +441,33 @@ Get-ChildItem C:\HybridScope -Recurse | Unblock-File
 
 ## Support the project
 
-If HybridScope saves you time, you can support its development:
+HybridScope is free and open source, and it will stay that way. If HybridScope (or one of my other projects) saves you time, you can leave a **one-time donation**: no subscription, no automatic renewal.
+
+| | Amount | For |
+|---|---|---|
+| ☕ **Coffee** | $5 | A quick thank-you |
+| 🍕 **Lunch** | $10 | You use it often and want it to stay free, read-only and open source |
+| 🛠️ **Sysadmin** | $25 | It saved you hours: a migration, an audit, a license cleanup |
+| 🏢 **Company** | $100 | Companies and MSPs using it in production. If you like, your company name can be listed under [Thanks](#thanks) |
 
 [![Sponsor on GitHub](https://img.shields.io/badge/Sponsor-GitHub-ea4aaa?style=for-the-badge&logo=githubsponsors&logoColor=white)](https://github.com/sponsors/Thonno)
 [![Buy Me a Coffee](https://img.shields.io/badge/Buy%20me%20a%20coffee-FFDD00?style=for-the-badge&logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/aascione956)
 [![Star on GitHub](https://img.shields.io/github/stars/Thonno/hybridscope?style=for-the-badge&logo=github&label=Star)](https://github.com/Thonno/hybridscope/stargazers)
 
+Not in a position to donate? You can still help: leave a ⭐, open an issue with a bug or an idea, or recommend HybridScope to a colleague.
+
 Issues and pull requests are welcome. Please open an issue before large changes.
+
+## Thanks
+
+Thanks to everyone who supports HybridScope.
+
+**Companies and MSPs**
+
+<!-- Add Company-tier sponsors who asked to be listed, one per line, e.g.:
+- [Contoso Ltd](https://www.contoso.com)
+-->
+*No one yet: your company could be the first.*
 
 ## License
 
