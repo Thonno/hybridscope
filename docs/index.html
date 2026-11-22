@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HybridScope - Active Directory, Exchange and Microsoft 365 user report (PowerShell)</title>
+<meta name="description" content="Free, open-source PowerShell tool: one window with Active Directory users, Exchange on-premises and Exchange Online mailboxes, Microsoft 365 licenses, MFA status, OneDrive and last sign-in. Read-only, exports to Excel.">
+<meta name="keywords" content="HybridScope, PowerShell, Active Directory report, Exchange on-premises, Microsoft 365, Entra ID, MFA report, license report, mailbox migration, hybrid identity, RVTools">
+<link rel="canonical" href="https://thonno.github.io/hybridscope/">
+<link rel="icon" type="image/png" href="icon.png">
+<meta property="og:type" content="website">
+<meta property="og:title" content="HybridScope - one view of your hybrid identities">
+<meta property="og:description" content="Active Directory + Exchange on-premises + Microsoft 365 in one window: mailboxes, licenses, MFA, sign-ins. Free and read-only. Export to Excel.">
+<meta property="og:url" content="https://thonno.github.io/hybridscope/">
+<meta property="og:image" content="https://thonno.github.io/hybridscope/07-overview.png">
+<meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "HybridScope",
+  "applicationCategory": "BusinessApplication",
+  "operatingSystem": "Windows",
+  "description": "Read-only inventory of hybrid identities and mailboxes: Active Directory, Exchange Server on-premises and Microsoft 365 (Microsoft Graph), with export to Excel.",
+  "url": "https://thonno.github.io/hybridscope/",
+  "downloadUrl": "https://github.com/Thonno/hybridscope/releases/latest",
+  "softwareHelp": "https://github.com/Thonno/hybridscope#readme",
+  "license": "https://opensource.org/licenses/MIT",
+  "author": { "@type": "Person", "name": "Thonno", "url": "https://github.com/Thonno" },
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+}
+</script>
+<style>
+  :root { --navy:#0E2A47; --navy2:#1A4A7A; --blue:#4FA3F7; --ink:#1F2A37; --muted:#5B6B80; --line:#DDE3EA; --bg:#F5F7FA; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:"Segoe UI", system-ui, -apple-system, Roboto, Helvetica, Arial, sans-serif; color:var(--ink); background:#fff; line-height:1.55; }
+  a { color:#1565C0; text-decoration:none; } a:hover { text-decoration:underline; }
+  .wrap { max-width:1080px; margin:0 auto; padding:0 24px; }
+  header.top { background:var(--navy); color:#fff; }
+  nav { display:flex; align-items:center; justify-content:space-between; height:60px; }
+  nav .brand { display:flex; align-items:center; gap:10px; color:#fff; font-weight:600; font-size:18px; }
+  nav .brand img { width:30px; height:30px; }
+  nav .links a { color:#CFE0F5; margin-left:22px; font-size:14px; }
+  .hero { background:linear-gradient(180deg, var(--navy) 0%, var(--navy2) 100%); color:#fff; padding:56px 0 0; text-align:center; overflow:hidden; }
+  .hero img.logo { width:88px; height:88px; }
+  .hero h1 { font-size:44px; margin:14px 0 6px; letter-spacing:-0.5px; }
+  .hero p.lead { font-size:19px; color:#CFE0F5; max-width:760px; margin:0 auto 26px; }
+  .btns { display:flex; gap:12px; justify-content:center; flex-wrap:wrap; margin-bottom:40px; }
+  .btn { display:inline-block; padding:11px 22px; border-radius:8px; font-weight:600; font-size:15px; }
+  .btn.primary { background:var(--blue); color:#06223D; } .btn.primary:hover { background:#6BB4FA; text-decoration:none; }
+  .btn.ghost { border:1px solid #6E8DB3; color:#fff; } .btn.ghost:hover { background:rgba(255,255,255,.08); text-decoration:none; }
+  .shot { max-width:980px; margin:0 auto; border-radius:10px 10px 0 0; box-shadow:0 -4px 40px rgba(0,0,0,.35); display:block; width:100%; }
+  section { padding:64px 0; }
+  section.alt { background:var(--bg); border-top:1px solid var(--line); border-bottom:1px solid var(--line); }
+  h2 { font-size:28px; margin:0 0 8px; color:var(--navy); }
+  p.sub { color:var(--muted); margin:0 0 32px; font-size:16px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:18px; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px 22px; }
+  .card h3 { margin:0 0 6px; font-size:17px; color:var(--navy); }
+  .card p { margin:0; color:var(--muted); font-size:14.5px; }
+  .sources { display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:18px; }
+  .src { border-top:4px solid var(--blue); }
+  .src ul { margin:8px 0 0; padding-left:18px; color:var(--muted); font-size:14.5px; }
+  table { width:100%; border-collapse:collapse; font-size:14.5px; background:#fff; }
+  th, td { text-align:left; padding:10px 12px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { background:#EEF2F7; color:var(--navy); }
+  .shots { display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:18px; }
+  .shots figure { margin:0; } .shots img { width:100%; border:1px solid var(--line); border-radius:8px; }
+  .shots figcaption { font-size:13.5px; color:var(--muted); margin-top:6px; }
+  pre { background:var(--navy); color:#EEF2F7; padding:16px 18px; border-radius:8px; overflow:auto; font-size:13.5px; }
+  code { font-family:Consolas, "Cascadia Mono", monospace; }
+  ol.steps { padding-left:20px; } ol.steps li { margin-bottom:10px; }
+  .note { font-size:14px; color:var(--muted); }
+  .support { text-align:center; }
+  .support .btns { margin:22px 0 0; }
+  .btn.pink { background:#EA4AAA; color:#fff; } .btn.yellow { background:#FFDD00; color:#000; } .btn.white { background:#fff; color:var(--navy); border:1px solid #B8C2D0; }
+  footer { background:var(--navy); color:#9FB4D9; font-size:13.5px; padding:26px 0; }
+  footer a { color:#CFE0F5; }
+  @media (max-width:640px) { .hero h1 { font-size:34px; } nav .links a:not(.gh) { display:none; } }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <nav>
+      <a class="brand" href="./"><img src="icon.png" alt="">HybridScope</a>
+      <div class="links">
+        <a href="#features">Features</a>
+        <a href="#modes">Modes</a>
+        <a href="#start">Get started</a>
+        <a href="https://github.com/Thonno/hybridscope/blob/main/README.it.md">Italiano</a>
+        <a class="gh" href="https://github.com/Thonno/hybridscope">GitHub</a>
+      </div>
+    </nav>
+  </div>
+</header>
+
+<div class="hero">
+  <div class="wrap">
+    <img class="logo" src="icon.png" alt="HybridScope icon">
+    <h1>HybridScope</h1>
+    <p class="lead">One view of your hybrid identities: <strong>Active Directory + Exchange on-premises + Microsoft 365</strong>. Who is on-prem and who is in the cloud, mailbox sizes, licenses, MFA and last sign-in, in one window. Exportable to Excel.</p>
+    <div class="btns">
+      <a class="btn primary" href="https://github.com/Thonno/hybridscope/releases/latest">Download the latest release</a>
+      <a class="btn ghost" href="https://github.com/Thonno/hybridscope">View on GitHub</a>
+      <a class="btn ghost" href="https://github.com/Thonno/hybridscope#readme">Documentation</a>
+    </div>
+    <img class="shot" src="07-overview.png" alt="HybridScope overview tab: users, mailbox location, space, licenses, MFA and inactivity per OU">
+  </div>
+</div>
+
+<section id="features">
+  <div class="wrap">
+    <h2>What it does</h2>
+    <p class="sub">A free PowerShell tool for Windows with an RVTools-style interface. It only reads: it never changes anything in AD, Exchange or Microsoft 365.</p>
+    <div class="sources">
+      <div class="card src"><h3>Active Directory</h3><ul><li>Users, OUs, enabled / disabled</li><li>Last logon, last password change</li><li>Groups (direct, nested, primary)</li></ul></div>
+      <div class="card src"><h3>Exchange Server on-premises</h3><ul><li>Mailboxes: size, items, database, quota</li><li>Last access, hidden from GAL, archive</li><li>Remote mailboxes already migrated</li></ul></div>
+      <div class="card src"><h3>Microsoft 365 (Graph)</h3><ul><li>Licenses, purchased and free</li><li>Last sign-in, Exchange Online, OneDrive</li><li>MFA registration, methods, per-user state</li></ul></div>
+    </div>
+    <div class="grid" style="margin-top:18px">
+      <div class="card"><h3>Reliable mailbox location</h3><p><code>ON-PREM</code> / <code>365</code> / <code>NO MAILBOX</code> comes from Exchange and Graph, never guessed from the mailbox size.</p></div>
+      <div class="card"><h3>Real MFA status</h3><p>Registered or not, which methods, the default one and the legacy per-user state, for every user.</p></div>
+      <div class="card"><h3>Attention list</h3><p>On-prem mailboxes to migrate, licensed users without MFA, licenses on disabled accounts, inactive and unsynced accounts.</p></div>
+      <div class="card"><h3>AD &harr; Entra ID sync check</h3><p>ImmutableId vs AD anchor, accounts that will soft-match or conflict at the next sync, provisioning errors.</p></div>
+      <div class="card"><h3>Export: FULL, presets or your columns</h3><p>Formatted Excel or CSV. Everything, a preset (sign-ins, licenses, migration, MFA, directory) or only the columns you tick.</p></div>
+      <div class="card"><h3>Fast, targeted loads</h3><p>With a preset, HybridScope reads only the data those columns need: a sign-in report does not wait for mailboxes and MFA.</p></div>
+      <div class="card"><h3>User card</h3><p>Double-click a user: AD, mailboxes, OneDrive, MFA, licenses, AD and Entra groups and roles in one window.</p></div>
+      <div class="card"><h3>Scheduled reports</h3><p><code>-Auto</code> with certificate sign-in: a daily Excel report, a <code>LATEST</code> copy to share and a trend history.</p></div>
+      <div class="card"><h3>Works outside the domain</h3><p>Windows credentials or a domain user and password with Kerberos. English and Italian interface.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="modes" class="alt">
+  <div class="wrap">
+    <h2>Pick your infrastructure</h2>
+    <p class="sub">One click at the top of the window: tabs, columns and overview adapt to the sources you have.</p>
+    <table>
+      <tr><th>Mode</th><th>Sources</th><th>What you get</th></tr>
+      <tr><td><strong>Full Cloud</strong></td><td>Microsoft 365</td><td>Users, licenses, Exchange Online mailboxes, OneDrive, MFA, last sign-in</td></tr>
+      <tr><td><strong>Full Hybrid</strong></td><td>Microsoft 365 + Exchange on-prem + AD</td><td>Everything: on-prem vs 365 location, mailboxes on both sides, MFA, licenses, AD data</td></tr>
+      <tr><td><strong>Hybrid</strong></td><td>Microsoft 365 + AD</td><td>AD users merged with their cloud accounts: licenses, Exchange Online, OneDrive, MFA</td></tr>
+      <tr><td><strong>On-Prem</strong></td><td>Exchange on-prem + AD</td><td>AD users with their on-prem mailboxes: size, database, quota, last access, inactivity</td></tr>
+      <tr><td><strong>AD</strong></td><td>Active Directory</td><td>Users, OUs, status, last logon, password age, inactivity</td></tr>
+    </table>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>Screenshots</h2>
+    <p class="sub">Sensitive data (users, domains, servers, OU names) is blurred.</p>
+    <div class="shots">
+      <figure><img src="08-users.png" alt="Users tab: one row per user merging AD, Exchange and Microsoft 365" loading="lazy"><figcaption>Users: one row per user, AD + Exchange + Microsoft 365 merged</figcaption></figure>
+      <figure><img src="01-full-hybrid.png" alt="Full Hybrid mode: Microsoft 365, Exchange and AD connection panels" loading="lazy"><figcaption>Full Hybrid mode</figcaption></figure>
+      <figure><img src="02-full-cloud.png" alt="Full Cloud mode: Microsoft 365 only" loading="lazy"><figcaption>Full Cloud mode</figcaption></figure>
+      <figure><img src="06-connected-loading.png" alt="Connected and loading data, with step indicators" loading="lazy"><figcaption>Connected, loading data</figcaption></figure>
+    </div>
+  </div>
+</section>
+
+<section id="start" class="alt">
+  <div class="wrap">
+    <h2>Get started</h2>
+    <p class="sub">Windows 10 / 11 or Windows Server 2016+, Windows PowerShell 5.1 (built into Windows).</p>
+    <ol class="steps">
+      <li><a href="https://github.com/Thonno/hybridscope/releases/latest">Download the latest release</a> and extract it to a local folder, e.g. <code>C:\HybridScope</code>.</li>
+      <li>Allow local scripts once and unblock the files:
+<pre><code>Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+Get-ChildItem C:\HybridScope -Recurse | Unblock-File</code></pre></li>
+      <li>Double-click <code>Start-HybridScope.cmd</code>. Missing modules (<code>Microsoft.Graph.Authentication</code>, <code>ImportExcel</code>, <code>ActiveDirectory</code>) are offered for installation.</li>
+      <li>Choose your mode, connect, pick what to export and click <strong>Load data</strong>.</li>
+    </ol>
+    <p class="note">Minimum permissions: any domain user for AD, <em>View-Only Organization Management</em> for Exchange, <em>Global Reader</em> plus a one-time admin consent to read-only Graph permissions for Microsoft 365. Your data never leaves your network: HybridScope only talks to your AD, your Exchange server and Microsoft Graph. <a href="https://github.com/Thonno/hybridscope#readme">Full documentation</a>.</p>
+  </div>
+</section>
+
+<section class="support">
+  <div class="wrap">
+    <h2>Free and open source</h2>
+    <p class="sub">MIT license. If HybridScope saves you time, a star, an issue or a one-time donation helps keep it that way.</p>
+    <div class="btns">
+      <a class="btn white" href="https://github.com/Thonno/hybridscope/stargazers">&#9733; Star on GitHub</a>
+      <a class="btn pink" href="https://github.com/sponsors/Thonno">&#9829; Sponsor</a>
+      <a class="btn yellow" href="https://buymeacoffee.com/aascione956">&#9749; Buy me a coffee</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    HybridScope by <a href="https://github.com/Thonno">Thonno</a> &middot; <a href="https://github.com/Thonno/hybridscope">github.com/Thonno/hybridscope</a> &middot; MIT License<br>
+    HybridScope is an independent project and is not affiliated with, endorsed or sponsored by Microsoft. Microsoft 365, Exchange, Entra ID and Active Directory are trademarks of the Microsoft group of companies.
+  </div>
+</footer>
+
+</body>
+</html>

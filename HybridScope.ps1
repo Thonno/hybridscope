@@ -195,7 +195,7 @@ param(
     [string]$ConfigPath
 )
 
-$HS_Version = '1.6.1'
+$HS_Version = '1.6.0'
 $HS_Author = 'Thonno'
 $HS_Repo = 'Thonno/hybridscope'
 $HS_Links = @{

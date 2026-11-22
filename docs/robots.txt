@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://thonno.github.io/hybridscope/sitemap.xml
