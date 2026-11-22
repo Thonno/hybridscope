@@ -195,7 +195,7 @@ param(
     [string]$ConfigPath
 )
 
-$HS_Version = '1.6.0'
+$HS_Version = '1.6.1'
 $HS_Author = 'Thonno'
 $HS_Repo = 'Thonno/hybridscope'
 $HS_Links = @{
@@ -3291,6 +3291,9 @@ foreach ($node in $xaml.SelectNodes("//*[@*[local-name()='Name']]")) {
     if ($nodeName) { $ui[$nodeName] = $Window.FindName($nodeName) }
 }
 $Window.Title = "HybridScope $HS_Version"
+# window / taskbar icon: tools\HybridScope.ico next to the script (or the exe)
+$script:IconPath = Join-Path $AppDir 'tools\HybridScope.ico'
+if (Test-Path $script:IconPath) { try { $Window.Icon = [System.Windows.Media.Imaging.BitmapFrame]::Create([uri]$script:IconPath) } catch { } }
 $Brush = New-Object System.Windows.Media.BrushConverter
 function Set-Led($led, [string]$state) {
     $color = switch ($state) { 'ok' { '#2EA043' } 'err' { '#D1242F' } 'busy' { '#E3A008' } default { '#B0B0B0' } }
@@ -3766,6 +3769,7 @@ function Show-HSUserCard($RowView) {
     }
     $win.Tag = $card
     $win.Owner = $Window
+    if ($Window.Icon) { $win.Icon = $Window.Icon }
 
     $displayName = ("$($user.FirstName) $($user.LastName)").Trim(); if (-not $displayName) { $displayName = if ($user.UPN) { $user.UPN } else { $user.Username } }
     $win.Title = "$displayName - HybridScope"
@@ -4153,6 +4157,7 @@ function Show-HSExportDialog([string]$Select) {
     [xml]$expXml = $xamlText
     $win = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $expXml))
     $win.Owner = $Window
+    if ($Window.Icon) { $win.Icon = $Window.Icon }
     $userRows = if ($script:Data) { @(Get-HSExportUserRows $script:Data) } else { @() }
     $st = @{
         Window = $win; Users = $userRows; Boxes = [ordered]@{}; Result = $null; KeepChecks = $false; Loading = $false
@@ -4550,6 +4555,7 @@ function Show-HSAbout {
     [xml]$aboutXml = $xamlText
     $about = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $aboutXml))
     $about.Owner = $Window
+    if ($Window.Icon) { $about.Icon = $Window.Icon }
     $about.FindName('lblVersion').Text = T 'about.version' $HS_Version
     $about.FindName('runAuthorUrl').Text = "   github.com/$HS_Author"
     $about.FindName('runRepo').Text = "github.com/$HS_Repo"

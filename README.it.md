@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="docs/icon.png" alt="HybridScope" width="96">
+
 # HybridScope
 
 **Una sola vista sulle identità ibride: Active Directory + Exchange on-premises + Microsoft 365.**
@@ -125,7 +127,9 @@ Chi è on-prem e chi è già nel cloud, quanto spazio occupa ogni mailbox, chi h
 ```powershell
 .\tools\Build-Exe.ps1
 ```
-Crea `HybridScope.exe` nella cartella principale con [PS2EXE](https://github.com/MScholtes/PS2EXE) e installa PS2EXE se manca. L'exe deve restare nella stessa cartella di `tools\` e `config.json`.
+Crea `HybridScope.exe` nella cartella principale con [PS2EXE](https://github.com/MScholtes/PS2EXE) e installa PS2EXE se manca. L'exe ha l'icona di HybridScope (`tools\HybridScope.ico`) e nelle proprietà del file la versione dello script. Deve restare nella stessa cartella di `tools\` e `config.json`.
+
+> L'exe **contiene** lo script: non avvia l'`HybridScope.ps1` che ha accanto. Dopo ogni aggiornamento (nuova release) rilancia `.\tools\Build-Exe.ps1`. `Start-HybridScope.cmd` avvia sempre l'`HybridScope.ps1` attuale e non va mai ricreato.
 
 > ⚠️ Gli antivirus e le sandbox (Defender, Bitdefender...) segnalano spesso gli exe creati con PS2EXE come falsi positivi. Firma l'exe con un certificato di code signing (il comando viene mostrato alla fine della build), oppure usa semplicemente `Start-HybridScope.cmd`.
 
@@ -196,6 +200,8 @@ Nel riquadro, il menu a tendina sceglie il contenuto e **Colonne...** apre la sc
 - **Personalizzato**: spunti solo le colonne che ti servono, per esempio solo *AD_Username*, *AD_UltimoLogon* e *M365_UltimoAccesso*. Se cambi una colonna di un preset si passa a Personalizzato; **Salva come preset...** conserva la scelta con un nome a piacere (in `config.json`, mostrato con una ★).
 
 Opzioni per preset e personalizzato: **un foglio per gruppo**, **includi PANORAMICA**, **solo account abilitati**. Un CSV con la sola lista utenti è un unico file; con più fogli ottieni una cartella con un CSV per tab. Accanto al menu vedi cosa verrà esportato, es. *3 colonne: AD_Username, AD_UltimoLogon, M365_UltimoAccesso*.
+
+**Leggi solo i dati necessari** (spuntata di default, vale con un preset o Personalizzato): **Carica dati** legge solo quello che serve alle colonne scelte, quindi è molto più veloce. *Accessi e inattività*, per esempio, legge AD e la lista utenti di Microsoft 365, ma non le mailbox Exchange, i report di utilizzo, l'MFA e il controllo della sincronizzazione. In alto compare **CARICAMENTO PARZIALE**: panoramica, tab e schede utente sono incompleti. Se poi esporti colonne che non sono state lette, HybridScope ti avvisa. Togli la spunta, oppure scegli FULL, per leggere tutto.
 
 ## Tab e colonne
 
@@ -296,6 +302,7 @@ Gli account sincronizzati da un altro dominio o foresta, o da fuori `SearchBase`
 | `ExportPreset`, `ExportColumns` | `Full`, `[]` | Scelta nel riquadro **Contenuto export**; `ExportColumns` sono le colonne di **Personalizzato** (nomi inglesi, es. `["Username", "AD_LastLogon", "M365_LastSignIn"]`) |
 | `ExportGroupSheets`, `ExportOverview`, `ExportEnabledOnly` | `false` | Opzioni di export: un foglio per gruppo, includi PANORAMICA, solo account abilitati (valgono anche per `-Auto` con un preset) |
 | `ExportPresets` | `{}` | I tuoi preset: `{ "Inattivi": ["Username", "AD_LastLogon", "M365_LastSignIn"] }`. Li salva la finestra di export |
+| `ExportFastLoad` | `true` | Con un preset / Personalizzato legge solo i dati che servono alle colonne (casella **Leggi solo i dati necessari**, vale anche per `-Auto`). Un'esecuzione `-Auto` parziale non aggiorna `history.csv` |
 | `AutoExportPreset` | `Full` | Contenuto del report di `-Auto`: `Full`, `Access`, `Licenses`, `Migration`, `MFA`, `Directory`, `Custom` o il nome di un tuo preset |
 
 Esempio di `GroupRules`:

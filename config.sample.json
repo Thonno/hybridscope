@@ -84,5 +84,6 @@
       "Licenses"
     ]
   },
-  "AutoExportPreset": "Full"
+  "AutoExportPreset": "Full",
+  "ExportFastLoad": true
 }

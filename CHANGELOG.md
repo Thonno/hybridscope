@@ -1,10 +1,16 @@
 # Changelog
 
+## 1.6.1 - 2026-11-22
+- **Icon**: HybridScope has its own icon (`tools\HybridScope.ico`, 16-256 px): on the exe, on the main window and taskbar (also when started with `Start-HybridScope.cmd`) and on the user card, export and About windows
+- `tools\Build-Exe.ps1`: uses the icon and writes the script version (e.g. 1.6.1.0), company and copyright in the exe file properties. Reminder: the exe contains the script, rebuild it after every update
+- README / CHANGELOG / config.sample.json brought in line with 1.6.0 (dynamic load, `ExportFastLoad`)
+
 ## 1.6.0 - 2026-11-22
 - **Export content** box next to the connection panels: choose **before Load data** what Export XLSX / CSV will write: **FULL** (every tab and column, as before), a **preset** or **Custom** columns. **Columns...** opens the column chooser (columns of the selected infrastructure mode, or of the loaded data); the box shows what will be exported, and the export buttons write that choice directly
 - Built-in presets for the user list: *Sign-ins and inactivity*, *Licenses*, *Mailbox migration*, *MFA security*, *Directory*
 - **Custom**: one checkbox per column of the USERS tab (only the columns of the current infrastructure mode), All / None; changing a preset column switches to Custom. **Save as preset...** / **Delete preset** keep your own presets in `config.json` (`ExportPresets`)
 - Options for presets and custom exports: one sheet per group, include OVERVIEW, enabled accounts only. A CSV of the user list alone is written as a single file
+- **Dynamic load** - "Read only the data needed" (default on, setting `ExportFastLoad`): with a preset or Custom, Load data and `-Auto` read only what the columns need (e.g. *Sign-ins and inactivity* skips Exchange mailboxes, usage reports, MFA and the sync check). The top bar shows **PARTIAL LOAD**, tabs and overview sections without data are hidden, exporting columns that were not read asks first, and a partial `-Auto` run does not update `history.csv`
 - The last choice is remembered (`ExportPreset`, `ExportColumns`, `ExportGroupSheets`, `ExportOverview`, `ExportEnabledOnly`)
 - Command line: `-ExportPreset <name>` and `-Columns <list>` (e.g. `-Auto -Columns Username,AD_LastLogon,M365_LastSignIn`); both imply `-Auto` and also shape the `-PassThru` objects. New setting `AutoExportPreset` (default `Full`) for scheduled reports; a preset report is written as `HybridScope_<preset>_<timestamp>.xlsx` and still copied to `HybridScope_LATEST.xlsx`. `history.csv` is always computed on the full data
 
