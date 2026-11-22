@@ -65,5 +65,24 @@
   ],
   "UnmappedGroup": "",
   "CloudOnlyGroup": "",
-  "IncludeGuests": false
+  "IncludeGuests": false,
+  "ExportPreset": "Full",
+  "ExportColumns": [
+    "Username",
+    "AD_LastLogon",
+    "M365_LastSignIn"
+  ],
+  "ExportGroupSheets": false,
+  "ExportOverview": false,
+  "ExportEnabledOnly": false,
+  "ExportPresets": {
+    "Inactive": [
+      "Username",
+      "Status",
+      "AD_LastLogon",
+      "M365_LastSignIn",
+      "Licenses"
+    ]
+  },
+  "AutoExportPreset": "Full"
 }
