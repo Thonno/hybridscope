@@ -248,10 +248,17 @@ $Core = {
             'btn.load'          = 'Load data'
             'btn.xlsx'          = 'Export XLSX...'
             'btn.csvall'        = 'Export CSV...'
-            'tip.export'        = 'FULL report, a preset or only the columns you choose'
+            'tip.export'        = 'Exports what is chosen in "Export content"'
+            'gb.export'         = 'Export content'
+            'btn.expCols'       = 'Columns...'
+            'tip.expCols'       = 'Choose a preset or tick the columns of the user list, before or after loading the data'
+            'tip.cmbExport'     = 'What Export XLSX / CSV will write. Choose it before Load data.'
+            'export.boxFull'    = 'every tab, every column'
+            'export.boxCols'    = '{0} columns: {1}'
+            'export.summaryCols' = '{0} columns'
+            'export.apply'      = 'OK'
             'export.title'      = 'Export report'
-            'export.subtitle'   = 'The full report, a ready-made preset, or only the columns you tick.'
-            'export.format'     = 'Format'
+            'export.subtitle'   = 'Choose before loading the data: the full report, a ready-made preset, or only the columns you tick. Export XLSX / CSV will write this.'
             'export.content'    = 'Content'
             'export.options'    = 'Options'
             'export.columns'    = 'User columns'
@@ -262,7 +269,6 @@ $Core = {
             'export.optEnabled' = 'Enabled accounts only'
             'export.savePreset' = 'Save as preset...'
             'export.deletePreset' = 'Delete preset'
-            'export.ok'         = 'Export'
             'export.cancel'     = 'Cancel'
             'export.preset.Full' = 'FULL (all tabs, all columns)'
             'export.preset.Access' = 'Sign-ins and inactivity'
@@ -279,7 +285,6 @@ $Core = {
             'export.desc.Directory' = 'Names, username, UPN, OU, status and origin: a clean user list.'
             'export.desc.Custom' = 'Tick the columns you want. The selection is remembered for next time.'
             'export.desc.User'  = 'Your preset (saved in config.json). Changing a column switches to Custom.'
-            'export.summaryFull' = 'Full report: {0} tabs'
             'export.summary'    = '{0} columns  ·  {1} users'
             'export.msgNoCols'  = 'Tick at least one column.'
             'export.askName'    = 'Name of the new preset:'
@@ -616,10 +621,17 @@ $Core = {
             'btn.load'          = 'Carica dati'
             'btn.xlsx'          = 'Esporta XLSX...'
             'btn.csvall'        = 'Esporta CSV...'
-            'tip.export'        = 'Report FULL, un preset o solo le colonne che scegli'
+            'tip.export'        = 'Esporta quello che hai scelto in "Contenuto export"'
+            'gb.export'         = 'Contenuto export'
+            'btn.expCols'       = 'Colonne...'
+            'tip.expCols'       = 'Scegli un preset o spunta le colonne della lista utenti, prima o dopo aver caricato i dati'
+            'tip.cmbExport'     = 'Cosa scriveranno Esporta XLSX / CSV. Sceglilo prima di Carica dati.'
+            'export.boxFull'    = 'tutti i tab, tutte le colonne'
+            'export.boxCols'    = '{0} colonne: {1}'
+            'export.summaryCols' = '{0} colonne'
+            'export.apply'      = 'OK'
             'export.title'      = 'Esporta report'
-            'export.subtitle'   = 'Il report completo, un preset pronto oppure solo le colonne che spunti.'
-            'export.format'     = 'Formato'
+            'export.subtitle'   = 'Scegli prima di caricare i dati: il report completo, un preset pronto oppure solo le colonne che spunti. Esporta XLSX / CSV scriveranno questo.'
             'export.content'    = 'Contenuto'
             'export.options'    = 'Opzioni'
             'export.columns'    = 'Colonne utente'
@@ -630,7 +642,6 @@ $Core = {
             'export.optEnabled' = 'Solo account abilitati'
             'export.savePreset' = 'Salva come preset...'
             'export.deletePreset' = 'Elimina preset'
-            'export.ok'         = 'Esporta'
             'export.cancel'     = 'Annulla'
             'export.preset.Full' = 'FULL (tutti i tab, tutte le colonne)'
             'export.preset.Access' = 'Accessi e inattivita'
@@ -647,7 +658,6 @@ $Core = {
             'export.desc.Directory' = 'Nome, cognome, username, UPN, OU, stato e origine: una lista utenti pulita.'
             'export.desc.Custom' = 'Spunta le colonne che vuoi. La scelta viene ricordata per la prossima volta.'
             'export.desc.User'  = 'Il tuo preset (salvato in config.json). Se cambi una colonna passa a Personalizzato.'
-            'export.summaryFull' = 'Report completo: {0} tab'
             'export.summary'    = '{0} colonne  ·  {1} utenti'
             'export.msgNoCols'  = 'Spunta almeno una colonna.'
             'export.askName'    = 'Nome del nuovo preset:'
@@ -2576,6 +2586,23 @@ $Core = {
         @($presets[$key])
     }
 
+    # columns of the USERS tab, in order; Get-HSUserColumns drops those the infrastructure mode cannot fill (as Get-HSData does)
+    $script:HS_UserColumns = @('Group', 'FirstName', 'LastName', 'Username', 'OU', 'Status', 'AD_LastLogon', 'M365_LastSignIn', 'Licenses',
+        'Mailbox365_MB', 'MailboxOnPrem_MB', 'OneDrive_MB', 'PasswordLastSet', 'Location', 'MailboxType', 'MailboxSource',
+        'MFA_Status', 'MFA_DefaultMethod', 'MFA_Methods', 'MFA_PerUser', 'UPN', 'Origin', 'SyncIssues', 'Notes')
+
+    function Get-HSUserColumns {
+        param([string]$Mode)
+        $src = Get-HSSources $Mode
+        $drop = @()
+        if (-not $src.M365) { $drop += 'M365_LastSignIn', 'Licenses', 'Mailbox365_MB', 'OneDrive_MB', 'MFA_Status', 'MFA_DefaultMethod', 'MFA_Methods', 'MFA_PerUser', 'UPN', 'Origin' }
+        if (-not $src.Exch) { $drop += 'MailboxOnPrem_MB' }
+        if (-not $src.Exch -and -not $src.M365) { $drop += 'Location', 'MailboxType', 'MailboxSource' }
+        if (-not $src.AD) { $drop += 'AD_LastLogon', 'PasswordLastSet', 'OU' }
+        if (-not ($src.AD -and $src.M365)) { $drop += 'SyncIssues' }
+        @($script:HS_UserColumns | Where-Object { $drop -notcontains $_ })
+    }
+
     function Get-HSExportUserRows {
         # the user list of the loaded data: the USERS tab (columns of the infrastructure mode), else the merged rows
         param($Data)
@@ -3117,6 +3144,13 @@ $xamlText = @'
             <TextBlock x:Name="lblAD" Text="{{st.notverified}}" Foreground="#666" FontWeight="Normal" MinWidth="120"/>
           </StackPanel>
         </GroupBox>
+        <GroupBox x:Name="gbExport" Header="{{gb.export}}">
+          <StackPanel Orientation="Horizontal">
+            <ComboBox x:Name="cmbExport" Width="230" ToolTip="{{tip.cmbExport}}"/>
+            <Button x:Name="btnExpCols" Content="{{btn.expCols}}" ToolTip="{{tip.expCols}}"/>
+            <TextBlock x:Name="lblExport" Margin="8,0,0,0" Foreground="#555" FontWeight="Normal" MaxWidth="420" TextTrimming="CharacterEllipsis"/>
+          </StackPanel>
+        </GroupBox>
       </WrapPanel>
     </Border>
 
@@ -3338,6 +3372,7 @@ function Set-Busy([bool]$busy, [string]$text) {
     $ui.prg.IsIndeterminate = $busy
     if ($text) { $ui.lblStatus.Text = $text }
     $Window.Cursor = if ($busy) { [System.Windows.Input.Cursors]::AppStarting } else { $null }
+    if (-not $busy -and (Get-Command Update-HSExportLabel -ErrorAction SilentlyContinue)) { Update-HSExportLabel }
 }
 
 function Start-HSJob {
@@ -3888,12 +3923,12 @@ $HS_Sync.DataTables = $tables
 $script:ExportXaml = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="{{export.title}}" Width="700" Height="610" MinWidth="600" MinHeight="480" ResizeMode="CanResizeWithGrip" ShowInTaskbar="False"
+        Title="{{gb.export}}" Width="700" Height="610" MinWidth="600" MinHeight="480" ResizeMode="CanResizeWithGrip" ShowInTaskbar="False"
         WindowStartupLocation="CenterOwner" Background="White" FontFamily="Segoe UI" FontSize="12">
   <DockPanel>
     <Border DockPanel.Dock="Top" Background="#0E2A47" Padding="20,14">
       <StackPanel>
-        <TextBlock Text="{{export.title}}" Foreground="White" FontSize="18" FontWeight="SemiBold"/>
+        <TextBlock Text="{{gb.export}}" Foreground="White" FontSize="18" FontWeight="SemiBold"/>
         <TextBlock Text="{{export.subtitle}}" Foreground="#9FB4D9" TextWrapping="Wrap" Margin="0,2,0,0"/>
       </StackPanel>
     </Border>
@@ -3901,7 +3936,7 @@ $script:ExportXaml = @'
       <DockPanel>
         <StackPanel Orientation="Horizontal" DockPanel.Dock="Right">
           <Button x:Name="btnExpCancel" Content="{{export.cancel}}" Padding="16,4" Margin="0,0,8,0" IsCancel="True" Background="White" BorderBrush="#B8C2D0" Cursor="Hand"/>
-          <Button x:Name="btnExpOk" Content="{{export.ok}}" Padding="20,4" IsDefault="True" FontWeight="SemiBold" Background="#1565C0" Foreground="White" BorderBrush="#0E4A8F" Cursor="Hand"/>
+          <Button x:Name="btnExpOk" Content="{{export.apply}}" Padding="20,4" IsDefault="True" FontWeight="SemiBold" Background="#1565C0" Foreground="White" BorderBrush="#0E4A8F" Cursor="Hand"/>
         </StackPanel>
         <TextBlock x:Name="lblExpSummary" VerticalAlignment="Center" Foreground="#5B6B80"/>
       </DockPanel>
@@ -3910,11 +3945,6 @@ $script:ExportXaml = @'
       <Grid.ColumnDefinitions><ColumnDefinition Width="250"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
       <DockPanel Grid.Column="0" Margin="0,0,16,0">
         <StackPanel DockPanel.Dock="Top">
-          <TextBlock Text="{{export.format}}" FontWeight="SemiBold" Foreground="#0E2A47" Margin="0,0,0,4"/>
-          <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
-            <RadioButton x:Name="rbExpXlsx" Content="XLSX" GroupName="expFormat" Margin="0,0,18,0"/>
-            <RadioButton x:Name="rbExpCsv" Content="CSV" GroupName="expFormat"/>
-          </StackPanel>
           <TextBlock Text="{{export.content}}" FontWeight="SemiBold" Foreground="#0E2A47" Margin="0,0,0,4"/>
         </StackPanel>
         <StackPanel DockPanel.Dock="Bottom">
@@ -3959,10 +3989,12 @@ function Get-HSExportChecked { $st = $script:ExpState; @($st.Boxes.Keys | Where-
 function Update-HSExportSummary {
     $st = $script:ExpState
     $item = $st.lstExpPreset.SelectedItem
-    if ($item -and "$($item.Tag)" -eq 'Full') { $st.lblExpSummary.Text = T 'export.summaryFull' @($script:Data.Tables.Count); return }
+    if ($item -and "$($item.Tag)" -eq 'Full') { $st.lblExpSummary.Text = T 'export.desc.Full'; return }
+    $nCols = @(Get-HSExportChecked).Count
+    if (-not $st.Users.Count) { $st.lblExpSummary.Text = T 'export.summaryCols' @($nCols); return }
     $users = $st.Users
     if ($st.chkExpEnabled.IsChecked) { $enabledValues = Get-HSEnabledValues; $users = @($users | Where-Object { $enabledValues -contains "$($_.Status)" }) }
-    $st.lblExpSummary.Text = T 'export.summary' @(@(Get-HSExportChecked).Count, @($users).Count)
+    $st.lblExpSummary.Text = T 'export.summary' @($nCols, @($users).Count)
 }
 
 function Update-HSExportPresetList([string]$Select) {
@@ -3999,6 +4031,7 @@ function Set-HSExportPreset {
     $desc = T "export.desc.$key"
     if (Test-HSUserPreset $key) { $desc = T 'export.desc.User' } elseif ($desc -eq "export.desc.$key") { $desc = '' }
     $st.lblExpPresetDesc.Text = $desc
+    if ($isFull) { $st.lblExpPresetDesc.Text = '' }
     if ($isFull) { Set-HSExportChecks @($st.Boxes.Keys) }
     elseif ($key -eq 'Custom') {
         if (-not $st.KeepChecks) {
@@ -4026,11 +4059,11 @@ function Switch-HSExportToCustom {
     Update-HSExportSummary
 }
 
-function Show-HSExportDialog([string]$Format) {
+function Show-HSExportDialog([string]$Select) {
     <#
-        Export options: FULL report, a preset (built-in or saved) or custom columns of the user list.
-        Returns a hashtable (Format, Preset, Columns, GroupSheets, Overview, EnabledOnly) or $null if cancelled.
-        The choice is saved in config.json and proposed again next time.
+        What Export XLSX / CSV will write: FULL report, a preset (built-in or saved) or custom columns of the
+        user list. Opened from the "Export content" box, also before loading the data (columns of the current
+        infrastructure mode). The choice is saved in config.json. Returns $true if applied.
     #>
     $xamlText = [regex]::Replace($script:ExportXaml, '\{\{([\w\.]+)\}\}', [System.Text.RegularExpressions.MatchEvaluator] {
             param($match) [System.Security.SecurityElement]::Escape((T $match.Groups[1].Value))
@@ -4038,14 +4071,14 @@ function Show-HSExportDialog([string]$Format) {
     [xml]$expXml = $xamlText
     $win = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $expXml))
     $win.Owner = $Window
-    $userRows = @(Get-HSExportUserRows $script:Data)
+    $userRows = if ($script:Data) { @(Get-HSExportUserRows $script:Data) } else { @() }
     $st = @{
         Window = $win; Users = $userRows; Boxes = [ordered]@{}; Result = $null; KeepChecks = $false; Loading = $false
-        Available = if ($userRows.Count) { @($userRows[0].PSObject.Properties.Name) } else { @() }
+        Available = if ($userRows.Count) { @($userRows[0].PSObject.Properties.Name) } else { @(Get-HSUserColumns $script:CurrentMode) }
         Builtin = @('Full') + @($script:HS_ExportPresets.Keys) + @('Custom')
     }
     foreach ($name in 'lstExpPreset', 'lblExpPresetDesc', 'pnlExpCols', 'chkExpGroups', 'chkExpOverview', 'chkExpEnabled', 'btnExpAll', 'btnExpNone',
-        'btnExpSave', 'btnExpDelete', 'btnExpOk', 'btnExpCancel', 'lblExpSummary', 'rbExpXlsx', 'rbExpCsv') { $st[$name] = $win.FindName($name) }
+        'btnExpSave', 'btnExpDelete', 'btnExpOk', 'btnExpCancel', 'lblExpSummary') { $st[$name] = $win.FindName($name) }
     $script:ExpState = $st
 
     # one checkbox per column of the USERS tab, in the same order
@@ -4061,7 +4094,6 @@ function Show-HSExportDialog([string]$Format) {
         $st.Boxes[$col] = $box
     }
 
-    if ($Format -eq 'csv') { $st.rbExpCsv.IsChecked = $true } else { $st.rbExpXlsx.IsChecked = $true }
     $st.chkExpGroups.IsChecked = [bool]$cfg.ExportGroupSheets
     $st.chkExpOverview.IsChecked = [bool]$cfg.ExportOverview
     $st.chkExpEnabled.IsChecked = [bool]$cfg.ExportEnabledOnly
@@ -4101,34 +4133,91 @@ function Show-HSExportDialog([string]$Format) {
                 # a preset keeps its own column order; custom follows the order of the USERS tab
                 $cols = if ($key -eq 'Custom') { $checked } else { @(Resolve-HSExportColumns -Columns @(Get-HSExportColumns -Cfg $cfg -Preset $key) -Available $st.Available) }
             }
-            $st.Result = @{
-                Format = if ($st.rbExpCsv.IsChecked) { 'csv' } else { 'xlsx' }
-                Preset = $key; Columns = @($cols)
-                GroupSheets = [bool]$st.chkExpGroups.IsChecked; Overview = [bool]$st.chkExpOverview.IsChecked; EnabledOnly = [bool]$st.chkExpEnabled.IsChecked
-            }
+            $st.Result = $true
             $cfg.ExportPreset = $key
             if ($key -eq 'Custom') { $cfg.ExportColumns = @($cols) }
-            $cfg.ExportGroupSheets = $st.Result.GroupSheets; $cfg.ExportOverview = $st.Result.Overview; $cfg.ExportEnabledOnly = $st.Result.EnabledOnly
+            $cfg.ExportGroupSheets = [bool]$st.chkExpGroups.IsChecked; $cfg.ExportOverview = [bool]$st.chkExpOverview.IsChecked; $cfg.ExportEnabledOnly = [bool]$st.chkExpEnabled.IsChecked
             try { Save-HSConfig $cfg $ConfigPath } catch { }
             $st.Window.DialogResult = $true
         })
 
-    Update-HSExportPresetList "$($cfg.ExportPreset)"
-    if (-not $win.ShowDialog()) { return $null }
-    $script:ExpState.Result
+    Update-HSExportPresetList $(if ($Select) { $Select } else { "$($cfg.ExportPreset)" })
+    [void]$win.ShowDialog()
+    Update-HSExportBox
+    [bool]$script:ExpState.Result
 }
 
+# ---------------------------------------------------------------- "Export content" box in the main window (chosen before Load data)
+function Get-HSExportChoice {
+    # the saved choice as export options; an unknown preset (deleted by hand in config.json) falls back to FULL
+    $preset = "$($cfg.ExportPreset)"; if (-not $preset) { $preset = 'Full' }
+    $cols = @()
+    try { $cols = @(Get-HSExportColumns -Cfg $cfg -Preset $preset) } catch { $preset = 'Full' }
+    if ($preset -ne 'Full' -and -not $cols.Count) { $preset = 'Full' }
+    @{ Preset = $preset; Columns = $cols; GroupSheets = [bool]$cfg.ExportGroupSheets; Overview = [bool]$cfg.ExportOverview; EnabledOnly = [bool]$cfg.ExportEnabledOnly }
+}
+
+function Update-HSExportBox {
+    $script:ExpComboLoading = $true
+    $choice = Get-HSExportChoice
+    $ui.cmbExport.Items.Clear()
+    foreach ($key in @('Full') + @((Get-HSExportPresets $cfg).Keys) + @('Custom')) {
+        $item = New-Object System.Windows.Controls.ComboBoxItem
+        $item.Content = if (Test-HSUserPreset $key) { [string][char]0x2605 + '  ' + $key } else { Get-HSExportLabel $key }
+        $item.Tag = $key
+        [void]$ui.cmbExport.Items.Add($item)
+        if ($key -eq $choice.Preset) { $ui.cmbExport.SelectedItem = $item }
+    }
+    $script:ExpComboLoading = $false
+    Update-HSExportLabel
+}
+
+function Update-HSExportLabel {
+    $choice = Get-HSExportChoice
+    if ($choice.Preset -eq 'Full') { $text = T 'export.boxFull' }
+    else {
+        $rows = if ($script:Data) { @(Get-HSExportUserRows $script:Data) } else { @() }
+        $available = if ($rows.Count) { @($rows[0].PSObject.Properties.Name) } else { @(Get-HSUserColumns $script:CurrentMode) }
+        $cols = @(Resolve-HSExportColumns -Columns $choice.Columns -Available $available)
+        $text = T 'export.boxCols' @($cols.Count, (@($cols | ForEach-Object { Get-HSHeader $_ }) -join ', '))
+        $extra = @($(if ($choice.GroupSheets) { T 'export.optGroups' }), $(if ($choice.Overview) { T 'export.optOverview' }), $(if ($choice.EnabledOnly) { T 'export.optEnabled' })) | Where-Object { $_ }
+        if ($extra.Count) { $text += '  ·  ' + ($extra -join ', ') }
+    }
+    $ui.lblExport.Text = $text
+    $ui.lblExport.ToolTip = $text
+    $tip = (T 'tip.export') + "`n" + $text
+    $ui.btnXlsx.ToolTip = $tip; $ui.btnCsvAll.ToolTip = $tip
+}
+
+$ui.cmbExport.Add_SelectionChanged({
+        if ($script:ExpComboLoading) { return }
+        $item = $ui.cmbExport.SelectedItem; if (-not $item) { return }
+        $key = "$($item.Tag)"
+        if ($key -eq 'Custom' -and -not @($cfg.ExportColumns).Count) {
+            # nothing ticked yet: choose now (after this event, the dialog rebuilds the list)
+            [void]$Window.Dispatcher.BeginInvoke([action] { Show-HSExportDialog 'Custom' | Out-Null })
+            return
+        }
+        $cfg.ExportPreset = $key
+        try { Save-HSConfig $cfg $ConfigPath } catch { }
+        Update-HSExportLabel
+    })
+$ui.btnExpCols.Add_Click({ Show-HSExportDialog | Out-Null })
+# the listed columns follow the infrastructure mode (until data is loaded)
+foreach ($rb in 'rbCloud', 'rbFullHybrid', 'rbHybrid', 'rbOnPrem', 'rbAD') { $ui[$rb].Add_Checked({ Update-HSExportLabel }) }
+Update-HSExportBox
+
 function Start-HSExport([string]$Format) {
+    # writes what was chosen in the "Export content" box (before or after loading the data)
     if (-not $script:Data -or $script:Job) { return }
-    $opt = Show-HSExportDialog $Format
-    if (-not $opt) { return }
+    $opt = Get-HSExportChoice
     $stamp = $script:Data.Generated.ToString('yyyy-MM-dd_HHmm')
     $isFull = $opt.Preset -eq 'Full'
     $tag = if ($isFull) { '' } else { '_' + ($opt.Preset -replace '[^\w\-]', '') }
     $exportOpt = @{ Columns = $opt.Columns; GroupSheets = $opt.GroupSheets; Overview = $opt.Overview; EnabledOnly = $opt.EnabledOnly; Label = $opt.Preset }
     $select = '$exportData = Select-HSExportData -Data $HS_Sync.Data -Columns $ExportOpt.Columns -Label $ExportOpt.Label -GroupSheets:($ExportOpt.GroupSheets) -Overview:($ExportOpt.Overview) -EnabledOnly:($ExportOpt.EnabledOnly)' + "`n"
 
-    if ($opt.Format -eq 'xlsx') {
+    if ($Format -eq 'xlsx') {
         $dlg = New-Object Microsoft.Win32.SaveFileDialog
         $dlg.Filter = 'Excel (*.xlsx)|*.xlsx'
         $dlg.InitialDirectory = Get-HSOutputFolder $cfg

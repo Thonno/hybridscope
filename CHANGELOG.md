@@ -1,7 +1,7 @@
 # Changelog
 
 ## 1.6.0 - 2026-11-22
-- **Export window**: **Export XLSX...** / **Export CSV...** now ask what to export: **FULL** (every tab and column, as before), a **preset** or **Custom** columns
+- **Export content** box next to the connection panels: choose **before Load data** what Export XLSX / CSV will write: **FULL** (every tab and column, as before), a **preset** or **Custom** columns. **Columns...** opens the column chooser (columns of the selected infrastructure mode, or of the loaded data); the box shows what will be exported, and the export buttons write that choice directly
 - Built-in presets for the user list: *Sign-ins and inactivity*, *Licenses*, *Mailbox migration*, *MFA security*, *Directory*
 - **Custom**: one checkbox per column of the USERS tab (only the columns of the current infrastructure mode), All / None; changing a preset column switches to Custom. **Save as preset...** / **Delete preset** keep your own presets in `config.json` (`ExportPresets`)
 - Options for presets and custom exports: one sheet per group, include OVERVIEW, enabled accounts only. A CSV of the user list alone is written as a single file

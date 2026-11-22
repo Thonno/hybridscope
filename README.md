@@ -156,6 +156,7 @@ It creates `HybridScope.exe` in the main folder with [PS2EXE](https://github.com
    - *Custom rules*: `GroupRules` in `config.json`
 
    You never have to map OUs by hand: grouping is automatic, and the choice is remembered.
+   In **Export content** choose what the export will contain: **FULL**, a preset or only the columns you tick (**Columns...**). See [Export](#export-full-preset-or-custom-columns).
 6. Click **Load data**. Progress appears in the **Log** panel; a few hundred users take a few minutes. **Stop** cancels the load; it waits for the current request to finish.
 7. Search, sort, and **export**. To look at a report saved earlier, use **File > Open report** (Ctrl+O) or drag the `.xlsx` / CSV folder onto the window. **Double-click a user** in any tab (USERS, a group, MFA, mailboxes, ATTENTION, SYNC...) to open their card.
 
@@ -177,7 +178,9 @@ For scheduled reports (`-Auto`) the mode comes from `Mode` in `config.json`.
 
 ### Export: FULL, preset or custom columns
 
-**Export XLSX...** / **Export CSV...** (also in the File menu) open the export window:
+Choose **what to export before loading the data**, in the **Export content** box next to the connection panels (the choice is saved and can also be changed after loading). **Export XLSX...** / **Export CSV...** then write exactly that, without asking again.
+
+In the box, the drop-down picks the content and **Columns...** opens the column chooser (only the columns of the selected infrastructure mode are listed):
 
 - **FULL**: every tab with every column, as before.
 - **A preset**, ready to use for the most common requests:
@@ -192,7 +195,7 @@ For scheduled reports (`-Auto`) the mode comes from `Mode` in `config.json`.
 
 - **Custom**: tick only the columns you want, e.g. just *AD_Username*, *AD_LastLogon* and *M365_LastSignIn*. Changing a column of a preset switches to Custom; **Save as preset...** keeps the selection with a name of your choice (stored in `config.json`, shown with a ★).
 
-Options for presets and custom exports: **one sheet per group**, **include OVERVIEW**, **enabled accounts only**. A CSV with only the user list is a single file; with more sheets you get a folder with one CSV per tab. The last choice is remembered. Only the columns of the selected infrastructure mode are listed.
+Options for presets and custom exports: **one sheet per group**, **include OVERVIEW**, **enabled accounts only**. A CSV with only the user list is a single file; with more sheets you get a folder with one CSV per tab. Next to the drop-down you see what will be exported, e.g. *3 columns: AD_Username, AD_LastLogon, M365_LastSignIn*.
 
 ## Tabs and columns
 
@@ -290,7 +293,7 @@ Accounts synced from another domain or forest, or from outside `SearchBase`, are
 | `GroupRules` | `[]` | Used only with `GroupBy = Rules`. `[{ "Group": "EMPLOYEES", "Match": "OU=Employees," }]`; the first match on the DistinguishedName wins |
 | `UnmappedGroup`, `CloudOnlyGroup` | `OTHER`, `CLOUD_ONLY` | Custom names for those groups |
 | `IncludeGuests` | `false` | Include Entra guests |
-| `ExportPreset`, `ExportColumns` | `Full`, `[]` | Last choice in the export window; `ExportColumns` are the **Custom** columns (English names, e.g. `["Username", "AD_LastLogon", "M365_LastSignIn"]`) |
+| `ExportPreset`, `ExportColumns` | `Full`, `[]` | Choice in the **Export content** box; `ExportColumns` are the **Custom** columns (English names, e.g. `["Username", "AD_LastLogon", "M365_LastSignIn"]`) |
 | `ExportGroupSheets`, `ExportOverview`, `ExportEnabledOnly` | `false` | Export options: one sheet per group, include OVERVIEW, enabled accounts only (also used by `-Auto` with a preset) |
 | `ExportPresets` | `{}` | Your presets: `{ "Inactive": ["Username", "AD_LastLogon", "M365_LastSignIn"] }`. Saved by the export window |
 | `AutoExportPreset` | `Full` | Content of the `-Auto` report: `Full`, `Access`, `Licenses`, `Migration`, `MFA`, `Directory`, `Custom` or the name of one of your presets |

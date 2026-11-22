@@ -156,6 +156,7 @@ Al primo avvio viene creato `config.json` accanto allo script. `config.sample.js
    - *Regole personalizzate*: `GroupRules` in `config.json`
 
    Non devi mai mappare le OU a mano: il raggruppamento è automatico e la scelta viene ricordata.
+   In **Contenuto export** scegli cosa conterrà l'export: **FULL**, un preset oppure solo le colonne che spunti (**Colonne...**). Vedi [Export](#export-full-preset-o-colonne-a-scelta).
 6. Premi **Carica dati**. L'avanzamento compare nel pannello **Log**; qualche centinaio di utenti richiede pochi minuti. **Interrompi** ferma il caricamento; attende la fine della richiesta in corso.
 7. Cerca, ordina ed **esporta**. Per guardare un report salvato in precedenza usa **File > Apri report** (Ctrl+O) o trascina il file `.xlsx` / la cartella CSV sulla finestra. **Doppio clic su un utente** in qualsiasi tab (UTENTI, un gruppo, MFA, mailbox, DA_ATTENZIONARE, SYNC...) per aprire la sua scheda.
 
@@ -177,7 +178,9 @@ Per i report pianificati (`-Auto`) la modalità si imposta con `Mode` in `config
 
 ### Export: FULL, preset o colonne a scelta
 
-**Esporta XLSX...** / **Esporta CSV...** (anche nel menu File) aprono la finestra di export:
+Scegli **cosa esportare prima di caricare i dati**, nel riquadro **Contenuto export** accanto alle connessioni (la scelta viene salvata e si può cambiare anche dopo il caricamento). **Esporta XLSX...** / **Esporta CSV...** scrivono poi esattamente quello, senza chiedere altro.
+
+Nel riquadro, il menu a tendina sceglie il contenuto e **Colonne...** apre la scelta delle colonne (compaiono solo le colonne della modalità di infrastruttura selezionata):
 
 - **FULL**: tutti i tab con tutte le colonne, come prima.
 - **Un preset**, pronto per le richieste più comuni:
@@ -192,7 +195,7 @@ Per i report pianificati (`-Auto`) la modalità si imposta con `Mode` in `config
 
 - **Personalizzato**: spunti solo le colonne che ti servono, per esempio solo *AD_Username*, *AD_UltimoLogon* e *M365_UltimoAccesso*. Se cambi una colonna di un preset si passa a Personalizzato; **Salva come preset...** conserva la scelta con un nome a piacere (in `config.json`, mostrato con una ★).
 
-Opzioni per preset e personalizzato: **un foglio per gruppo**, **includi PANORAMICA**, **solo account abilitati**. Un CSV con la sola lista utenti è un unico file; con più fogli ottieni una cartella con un CSV per tab. L'ultima scelta viene ricordata. Compaiono solo le colonne della modalità di infrastruttura selezionata.
+Opzioni per preset e personalizzato: **un foglio per gruppo**, **includi PANORAMICA**, **solo account abilitati**. Un CSV con la sola lista utenti è un unico file; con più fogli ottieni una cartella con un CSV per tab. Accanto al menu vedi cosa verrà esportato, es. *3 colonne: AD_Username, AD_UltimoLogon, M365_UltimoAccesso*.
 
 ## Tab e colonne
 
@@ -290,7 +293,7 @@ Gli account sincronizzati da un altro dominio o foresta, o da fuori `SearchBase`
 | `GroupRules` | `[]` | Usato solo con `GroupBy = Rules`. `[{ "Group": "DIPENDENTI", "Match": "OU=Dipendenti," }]`; vince il primo match sul DistinguishedName |
 | `UnmappedGroup`, `CloudOnlyGroup` | `ALTRI`, `SOLO_CLOUD` | Nomi personalizzati per quei gruppi |
 | `IncludeGuests` | `false` | Includi gli ospiti Entra |
-| `ExportPreset`, `ExportColumns` | `Full`, `[]` | Ultima scelta nella finestra di export; `ExportColumns` sono le colonne di **Personalizzato** (nomi inglesi, es. `["Username", "AD_LastLogon", "M365_LastSignIn"]`) |
+| `ExportPreset`, `ExportColumns` | `Full`, `[]` | Scelta nel riquadro **Contenuto export**; `ExportColumns` sono le colonne di **Personalizzato** (nomi inglesi, es. `["Username", "AD_LastLogon", "M365_LastSignIn"]`) |
 | `ExportGroupSheets`, `ExportOverview`, `ExportEnabledOnly` | `false` | Opzioni di export: un foglio per gruppo, includi PANORAMICA, solo account abilitati (valgono anche per `-Auto` con un preset) |
 | `ExportPresets` | `{}` | I tuoi preset: `{ "Inattivi": ["Username", "AD_LastLogon", "M365_LastSignIn"] }`. Li salva la finestra di export |
 | `AutoExportPreset` | `Full` | Contenuto del report di `-Auto`: `Full`, `Access`, `Licenses`, `Migration`, `MFA`, `Directory`, `Custom` o il nome di un tuo preset |
