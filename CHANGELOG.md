@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.6.0 - 2026-11-22
+- **Export window**: **Export XLSX...** / **Export CSV...** now ask what to export: **FULL** (every tab and column, as before), a **preset** or **Custom** columns
+- Built-in presets for the user list: *Sign-ins and inactivity*, *Licenses*, *Mailbox migration*, *MFA security*, *Directory*
+- **Custom**: one checkbox per column of the USERS tab (only the columns of the current infrastructure mode), All / None; changing a preset column switches to Custom. **Save as preset...** / **Delete preset** keep your own presets in `config.json` (`ExportPresets`)
+- Options for presets and custom exports: one sheet per group, include OVERVIEW, enabled accounts only. A CSV of the user list alone is written as a single file
+- The last choice is remembered (`ExportPreset`, `ExportColumns`, `ExportGroupSheets`, `ExportOverview`, `ExportEnabledOnly`)
+- Command line: `-ExportPreset <name>` and `-Columns <list>` (e.g. `-Auto -Columns Username,AD_LastLogon,M365_LastSignIn`); both imply `-Auto` and also shape the `-PassThru` objects. New setting `AutoExportPreset` (default `Full`) for scheduled reports; a preset report is written as `HybridScope_<preset>_<timestamp>.xlsx` and still copied to `HybridScope_LATEST.xlsx`. `history.csv` is always computed on the full data
+
 ## 1.5.0 - 2026-11-19
 - **User card**: double-click a user in any tab (USERS, groups, MFA, mailboxes, ATTENTION, SYNC...) to open one window with identity, AD, Microsoft 365, mailbox (on-prem and Exchange Online details), OneDrive, MFA, sync data and notes. Values can be selected; **Copy** puts the whole card on the clipboard
 - The card loads the user's **groups and roles** in the background: AD groups (direct, nested via `LDAP_MATCHING_RULE_IN_CHAIN`, primary group) and Entra groups (Microsoft 365 / security / mail-enabled security / distribution, dynamic, synced or cloud) and Entra roles, with direct vs inherited membership and a search box

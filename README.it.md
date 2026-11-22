@@ -60,7 +60,7 @@ Chi è on-prem e chi è già nel cloud, quanto spazio occupa ogni mailbox, chi h
   - account inattivi
   - account AD non sincronizzati
   - problemi di sincronizzazione
-- **Export**: XLSX formattato (tutti i tab) o CSV, oppure solo il tab corrente con il filtro applicato.
+- **Export**: XLSX formattato o CSV. **FULL** (tutti i tab), un **preset** (accessi, licenze, migrazione, MFA, anagrafica) oppure **personalizzato**: spunti solo le colonne che vuoi. Puoi salvare i tuoi preset. Oppure solo il tab corrente con il filtro applicato.
 - **Apri un report salvato** (File > Apri report, Ctrl+O, oppure trascinalo sulla finestra): un report XLSX, una cartella di export CSV o un singolo CSV, in entrambe le lingue. Sfogli, cerchi, riesporti e apri le schede utente senza collegarti a niente, per esempio l'`HybridScope_LATEST.xlsx` giornaliero da un altro PC.
 - **Funziona anche da PC fuori dominio**: credenziali Windows oppure utente e password di dominio inseriti a mano, con Kerberos.
 - **Modalità di infrastruttura**: *Full Cloud*, *Full Hybrid*, *Hybrid*, *On-Prem* o *AD*, selezionabili con un clic. L'app mostra e unisce solo le fonti che hai.
@@ -175,6 +175,25 @@ Scegli la tua infrastruttura con i pulsanti in alto nella finestra. Riquadri di 
 
 Per i report pianificati (`-Auto`) la modalità si imposta con `Mode` in `config.json`.
 
+### Export: FULL, preset o colonne a scelta
+
+**Esporta XLSX...** / **Esporta CSV...** (anche nel menu File) aprono la finestra di export:
+
+- **FULL**: tutti i tab con tutte le colonne, come prima.
+- **Un preset**, pronto per le richieste più comuni:
+
+  | Preset | Colonne della lista utenti |
+  |---|---|
+  | Accessi e inattività | nome, cognome, username, stato, ultimo logon AD, ultimo accesso Microsoft 365, ultimo cambio password, licenze |
+  | Licenze | nome, cognome, username, UPN, stato, licenze, ultimo accesso Microsoft 365, note |
+  | Migrazione mailbox | gruppo, nome, cognome, username, stato, Location, tipo mailbox, dimensione on-prem / 365 / OneDrive |
+  | Sicurezza MFA | nome, cognome, username, UPN, stato, licenze, stato MFA, metodo predefinito, metodi, stato per-user |
+  | Anagrafica | gruppo, nome, cognome, username, UPN, OU, stato, origine |
+
+- **Personalizzato**: spunti solo le colonne che ti servono, per esempio solo *AD_Username*, *AD_UltimoLogon* e *M365_UltimoAccesso*. Se cambi una colonna di un preset si passa a Personalizzato; **Salva come preset...** conserva la scelta con un nome a piacere (in `config.json`, mostrato con una ★).
+
+Opzioni per preset e personalizzato: **un foglio per gruppo**, **includi PANORAMICA**, **solo account abilitati**. Un CSV con la sola lista utenti è un unico file; con più fogli ottieni una cartella con un CSV per tab. L'ultima scelta viene ricordata. Compaiono solo le colonne della modalità di infrastruttura selezionata.
+
 ## Tab e colonne
 
 | Tab | Contenuto |
@@ -271,6 +290,10 @@ Gli account sincronizzati da un altro dominio o foresta, o da fuori `SearchBase`
 | `GroupRules` | `[]` | Usato solo con `GroupBy = Rules`. `[{ "Group": "DIPENDENTI", "Match": "OU=Dipendenti," }]`; vince il primo match sul DistinguishedName |
 | `UnmappedGroup`, `CloudOnlyGroup` | `ALTRI`, `SOLO_CLOUD` | Nomi personalizzati per quei gruppi |
 | `IncludeGuests` | `false` | Includi gli ospiti Entra |
+| `ExportPreset`, `ExportColumns` | `Full`, `[]` | Ultima scelta nella finestra di export; `ExportColumns` sono le colonne di **Personalizzato** (nomi inglesi, es. `["Username", "AD_LastLogon", "M365_LastSignIn"]`) |
+| `ExportGroupSheets`, `ExportOverview`, `ExportEnabledOnly` | `false` | Opzioni di export: un foglio per gruppo, includi PANORAMICA, solo account abilitati (valgono anche per `-Auto` con un preset) |
+| `ExportPresets` | `{}` | I tuoi preset: `{ "Inattivi": ["Username", "AD_LastLogon", "M365_LastSignIn"] }`. Li salva la finestra di export |
+| `AutoExportPreset` | `Full` | Contenuto del report di `-Auto`: `Full`, `Access`, `Licenses`, `Migration`, `MFA`, `Directory`, `Custom` o il nome di un tuo preset |
 
 Esempio di `GroupRules`:
 ```json
@@ -318,6 +341,8 @@ Ogni esecuzione senza finestra usa `config.json`; help completo con esempi: `Get
 | `-Only <dataset>` | Un solo insieme di dati: `MFA`, `Licenses`, `Mailbox365`, `OneDrive`, `MailboxOnPrem` o `Sync` (AD + Microsoft 365). Vengono contattate solo le fonti che servono |
 | `-PassThru` | Restituisce oggetti invece di scrivere file: le righe di `-Only`, oppure una riga unita per utente. I valori sono sempre in inglese |
 | `-Mode <modalità>` | Sostituisce `Mode` solo per questa esecuzione (`Cloud`, `FullHybrid`, `Hybrid`, `OnPrem`, `AD`) |
+| `-ExportPreset <nome>` | Contenuto del report: `Full` (default), `Access`, `Licenses`, `Migration`, `MFA`, `Directory`, `Custom` o un tuo preset. Sostituisce `AutoExportPreset` |
+| `-Columns <lista>` | Solo queste colonne della lista utenti, in questo ordine, es. `Username,AD_LastLogon,M365_LastSignIn` (nomi inglesi o intestazioni italiane) |
 | `-ConfigPath <file>` | Usa un altro file di configurazione, per esempio uno per tenant |
 
 Accesso a Microsoft 365: con `AuthMode = Interactive` (il default) si apre una volta l'accesso nel browser; con `Certificate` nessuna richiesta. Se nella stessa sessione hai già eseguito `Connect-MgGraph`, quella connessione viene riusata e lasciata aperta.
@@ -331,6 +356,12 @@ Accesso a Microsoft 365: con `AuthMode = Interactive` (il default) si apre una v
 
 # cosa andrà storto alla prossima sincronizzazione AD -> Entra ID
 .\HybridScope.ps1 -Only Sync -PassThru | Where-Object Category -notlike '0 *' | Format-Table Category, Username, UPN, Details -Wrap
+
+# solo username, ultimo logon AD e ultimo accesso Microsoft 365
+.\HybridScope.ps1 -Auto -Columns Username,AD_LastLogon,M365_LastSignIn
+
+# report MFA pronto
+.\HybridScope.ps1 -Auto -ExportPreset MFA
 
 # report completo, solo Microsoft 365, senza modificare config.json
 .\HybridScope.ps1 -Auto -Mode Cloud
@@ -353,7 +384,7 @@ Exit code: `0` = riuscito, `1` = errore (dettagli in `OutputFolder\logs`).
    .\tools\Register-HybridScopeTask.ps1 -RunAs CONTOSO\svc-hybridscope -At 06:40
    ```
 3. Ogni esecuzione scrive in `OutputFolder`:
-   - `HybridScope_<data>.xlsx`
+   - `HybridScope_<data>.xlsx` (con un preset: `HybridScope_<preset>_<data>.xlsx`, vedi `AutoExportPreset`)
    - `HybridScope_LATEST.xlsx`, sempre l'ultimo, comodo da condividere
    - `history.csv`, mostrato anche nel tab STORICO
    - `logs\`

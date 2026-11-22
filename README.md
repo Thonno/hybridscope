@@ -60,7 +60,7 @@ Who is on-prem and who is already in the cloud, how much space every mailbox use
   - inactive accounts
   - AD accounts that are not synced
   - sync problems
-- **Export**: formatted XLSX (all tabs) or CSV, or only the current tab with the filter applied.
+- **Export**: formatted XLSX or CSV. **FULL** (every tab), a **preset** (sign-ins, licenses, migration, MFA, directory) or **custom**: tick only the columns you want. Save your own presets. Or only the current tab with the filter applied.
 - **Open a saved report** (File > Open, Ctrl+O, or drag it onto the window): an XLSX report, a CSV export folder or a single CSV, in either language. Browse, search, re-export and open user cards without connecting to anything, e.g. the daily `HybridScope_LATEST.xlsx` on another PC.
 - **Works from a PC outside the domain**: either Windows credentials or a domain user and password entered manually, with Kerberos.
 - **Infrastructure modes**: *Full Cloud*, *Full Hybrid*, *Hybrid*, *On-Prem* or *AD*, selectable with one click. The app shows and merges only the sources you have.
@@ -175,6 +175,25 @@ Pick your infrastructure with the buttons at the top of the window. The connecti
 
 For scheduled reports (`-Auto`) the mode comes from `Mode` in `config.json`.
 
+### Export: FULL, preset or custom columns
+
+**Export XLSX...** / **Export CSV...** (also in the File menu) open the export window:
+
+- **FULL**: every tab with every column, as before.
+- **A preset**, ready to use for the most common requests:
+
+  | Preset | Columns of the user list |
+  |---|---|
+  | Sign-ins and inactivity | first and last name, username, status, last AD logon, last Microsoft 365 sign-in, last password change, licenses |
+  | Licenses | first and last name, username, UPN, status, licenses, last Microsoft 365 sign-in, notes |
+  | Mailbox migration | group, first and last name, username, status, Location, mailbox type, on-prem / 365 / OneDrive size |
+  | MFA security | first and last name, username, UPN, status, licenses, MFA status, default method, methods, per-user state |
+  | Directory | group, first and last name, username, UPN, OU, status, origin |
+
+- **Custom**: tick only the columns you want, e.g. just *AD_Username*, *AD_LastLogon* and *M365_LastSignIn*. Changing a column of a preset switches to Custom; **Save as preset...** keeps the selection with a name of your choice (stored in `config.json`, shown with a ★).
+
+Options for presets and custom exports: **one sheet per group**, **include OVERVIEW**, **enabled accounts only**. A CSV with only the user list is a single file; with more sheets you get a folder with one CSV per tab. The last choice is remembered. Only the columns of the selected infrastructure mode are listed.
+
 ## Tabs and columns
 
 | Tab | Content |
@@ -271,6 +290,10 @@ Accounts synced from another domain or forest, or from outside `SearchBase`, are
 | `GroupRules` | `[]` | Used only with `GroupBy = Rules`. `[{ "Group": "EMPLOYEES", "Match": "OU=Employees," }]`; the first match on the DistinguishedName wins |
 | `UnmappedGroup`, `CloudOnlyGroup` | `OTHER`, `CLOUD_ONLY` | Custom names for those groups |
 | `IncludeGuests` | `false` | Include Entra guests |
+| `ExportPreset`, `ExportColumns` | `Full`, `[]` | Last choice in the export window; `ExportColumns` are the **Custom** columns (English names, e.g. `["Username", "AD_LastLogon", "M365_LastSignIn"]`) |
+| `ExportGroupSheets`, `ExportOverview`, `ExportEnabledOnly` | `false` | Export options: one sheet per group, include OVERVIEW, enabled accounts only (also used by `-Auto` with a preset) |
+| `ExportPresets` | `{}` | Your presets: `{ "Inactive": ["Username", "AD_LastLogon", "M365_LastSignIn"] }`. Saved by the export window |
+| `AutoExportPreset` | `Full` | Content of the `-Auto` report: `Full`, `Access`, `Licenses`, `Migration`, `MFA`, `Directory`, `Custom` or the name of one of your presets |
 
 Example `GroupRules`:
 ```json
@@ -317,6 +340,8 @@ Every run without the window uses `config.json`; full help with examples: `Get-H
 | `-Only <dataset>` | Just one dataset: `MFA`, `Licenses`, `Mailbox365`, `OneDrive`, `MailboxOnPrem` or `Sync` (AD + Microsoft 365). Only the sources it needs are contacted |
 | `-PassThru` | Returns objects instead of writing files: the `-Only` rows, or one merged row per user. Values are always in English |
 | `-Mode <mode>` | Overrides `Mode` for this run (`Cloud`, `FullHybrid`, `Hybrid`, `OnPrem`, `AD`) |
+| `-ExportPreset <name>` | Content of the report: `Full` (default), `Access`, `Licenses`, `Migration`, `MFA`, `Directory`, `Custom` or one of your presets. Overrides `AutoExportPreset` |
+| `-Columns <list>` | Only these columns of the user list, in this order, e.g. `Username,AD_LastLogon,M365_LastSignIn` (English names or Italian headers) |
 | `-ConfigPath <file>` | Uses another configuration file, e.g. one per tenant |
 
 Microsoft 365 sign-in: with `AuthMode = Interactive` (default) a browser prompt opens once; with `Certificate` there is no prompt. If you already ran `Connect-MgGraph` in the same session, that connection is reused and left open.
@@ -330,6 +355,12 @@ Microsoft 365 sign-in: with `AuthMode = Interactive` (default) a browser prompt 
 
 # what will go wrong at the next AD -> Entra ID sync
 .\HybridScope.ps1 -Only Sync -PassThru | Where-Object Category -notlike '0 *' | Format-Table Category, Username, UPN, Details -Wrap
+
+# only username, last AD logon and last Microsoft 365 sign-in
+.\HybridScope.ps1 -Auto -Columns Username,AD_LastLogon,M365_LastSignIn
+
+# ready-made MFA report
+.\HybridScope.ps1 -Auto -ExportPreset MFA
 
 # full report, Microsoft 365 only, without editing config.json
 .\HybridScope.ps1 -Auto -Mode Cloud
@@ -352,7 +383,7 @@ Exit code: `0` = success, `1` = error (details in `OutputFolder\logs`).
    .\tools\Register-HybridScopeTask.ps1 -RunAs CONTOSO\svc-hybridscope -At 06:40
    ```
 3. Each run writes to `OutputFolder`:
-   - `HybridScope_<date>.xlsx`
+   - `HybridScope_<date>.xlsx` (with a preset: `HybridScope_<preset>_<date>.xlsx`, see `AutoExportPreset`)
    - `HybridScope_LATEST.xlsx`, always the latest, handy to share
    - `history.csv`, also shown in the HISTORY tab
    - `logs\`
