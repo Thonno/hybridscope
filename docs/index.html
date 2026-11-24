@@ -3,14 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>HybridScope - Active Directory, Exchange and Microsoft 365 user report (PowerShell)</title>
-<meta name="description" content="Free, open-source PowerShell tool: one window with Active Directory users, Exchange on-premises and Exchange Online mailboxes, Microsoft 365 licenses, MFA status, OneDrive and last sign-in. Read-only, exports to Excel.">
-<meta name="keywords" content="HybridScope, PowerShell, Active Directory report, Exchange on-premises, Microsoft 365, Entra ID, MFA report, license report, mailbox migration, hybrid identity, RVTools">
+<title>HybridScope - Active Directory, Exchange, Microsoft 365 and Defender report (PowerShell)</title>
+<meta name="description" content="Free, open-source PowerShell tool: one window with Active Directory users, Exchange on-premises and Exchange Online mailboxes, Microsoft 365 licenses, MFA status, last sign-in and Microsoft Defender vulnerabilities per user and PC. Read-only, exports to Excel.">
+<meta name="keywords" content="HybridScope, PowerShell, Active Directory report, Exchange on-premises, Microsoft 365, Entra ID, MFA report, license report, mailbox migration, hybrid identity, Microsoft Defender, Defender for Business, vulnerability report, RVTools">
 <link rel="canonical" href="https://thonno.github.io/hybridscope/">
 <link rel="icon" type="image/png" href="icon.png">
 <meta property="og:type" content="website">
 <meta property="og:title" content="HybridScope - one view of your hybrid identities">
-<meta property="og:description" content="Active Directory + Exchange on-premises + Microsoft 365 in one window: mailboxes, licenses, MFA, sign-ins. Free and read-only. Export to Excel.">
+<meta property="og:description" content="Active Directory + Exchange on-premises + Microsoft 365 + Microsoft Defender in one window: mailboxes, licenses, MFA, sign-ins, PC vulnerabilities and fixes. Free and read-only. Export to Excel.">
 <meta property="og:url" content="https://thonno.github.io/hybridscope/">
 <meta property="og:image" content="https://thonno.github.io/hybridscope/07-overview.png">
 <meta name="twitter:card" content="summary_large_image">
@@ -21,7 +21,7 @@
   "name": "HybridScope",
   "applicationCategory": "BusinessApplication",
   "operatingSystem": "Windows",
-  "description": "Read-only inventory of hybrid identities and mailboxes: Active Directory, Exchange Server on-premises and Microsoft 365 (Microsoft Graph), with export to Excel.",
+  "description": "Read-only inventory of hybrid identities, mailboxes and PC security: Active Directory, Exchange Server on-premises, Microsoft 365 (Microsoft Graph) and Microsoft Defender, with export to Excel.",
   "url": "https://thonno.github.io/hybridscope/",
   "downloadUrl": "https://github.com/Thonno/hybridscope/releases/latest",
   "softwareHelp": "https://github.com/Thonno/hybridscope#readme",
@@ -60,6 +60,7 @@
   .card p { margin:0; color:var(--muted); font-size:14.5px; }
   .sources { display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:18px; }
   .src { border-top:4px solid var(--blue); }
+  .src.sec { border-top-color:#2E9E6A; }
   .src ul { margin:8px 0 0; padding-left:18px; color:var(--muted); font-size:14.5px; }
   table { width:100%; border-collapse:collapse; font-size:14.5px; background:#fff; }
   th, td { text-align:left; padding:10px 12px; border-bottom:1px solid var(--line); vertical-align:top; }
@@ -87,6 +88,7 @@
       <a class="brand" href="./"><img src="icon.png" alt="">HybridScope</a>
       <div class="links">
         <a href="#features">Features</a>
+        <a href="#security">Security</a>
         <a href="#modes">Modes</a>
         <a href="#start">Get started</a>
         <a href="https://github.com/Thonno/hybridscope/blob/main/README.it.md">Italiano</a>
@@ -100,7 +102,7 @@
   <div class="wrap">
     <img class="logo" src="icon.png" alt="HybridScope icon">
     <h1>HybridScope</h1>
-    <p class="lead">One view of your hybrid identities: <strong>Active Directory + Exchange on-premises + Microsoft 365</strong>. Who is on-prem and who is in the cloud, mailbox sizes, licenses, MFA and last sign-in, in one window. Exportable to Excel.</p>
+    <p class="lead">One view of your hybrid identities and their PCs: <strong>Active Directory + Exchange on-premises + Microsoft 365 + Microsoft Defender</strong>. Who is on-prem and who is in the cloud, mailbox sizes, licenses, MFA, last sign-in, and which PCs have vulnerabilities to fix, in one window. Exportable to Excel.</p>
     <div class="btns">
       <a class="btn primary" href="https://github.com/Thonno/hybridscope/releases/latest">Download the latest release</a>
       <a class="btn ghost" href="https://github.com/Thonno/hybridscope">View on GitHub</a>
@@ -113,27 +115,51 @@
 <section id="features">
   <div class="wrap">
     <h2>What it does</h2>
-    <p class="sub">A free PowerShell tool for Windows with an RVTools-style interface. It only reads: it never changes anything in AD, Exchange or Microsoft 365.</p>
+    <p class="sub">A free PowerShell tool for Windows with an RVTools-style interface. It only reads: it never changes anything in AD, Exchange, Microsoft 365 or Defender.</p>
     <div class="sources">
       <div class="card src"><h3>Active Directory</h3><ul><li>Users, OUs, enabled / disabled</li><li>Last logon, last password change</li><li>Groups (direct, nested, primary)</li></ul></div>
       <div class="card src"><h3>Exchange Server on-premises</h3><ul><li>Mailboxes: size, items, database, quota</li><li>Last access, hidden from GAL, archive</li><li>Remote mailboxes already migrated</li></ul></div>
       <div class="card src"><h3>Microsoft 365 (Graph)</h3><ul><li>Licenses, purchased and free</li><li>Last sign-in, Exchange Online, OneDrive</li><li>MFA registration, methods, per-user state</li></ul></div>
+      <div class="card src sec"><h3>Microsoft Defender</h3><ul><li>PCs of the users with a Defender license</li><li>Risk, antivirus, open alerts</li><li>Vulnerabilities (CVE), missing KBs, software to update</li></ul></div>
     </div>
     <div class="grid" style="margin-top:18px">
       <div class="card"><h3>Reliable mailbox location</h3><p><code>ON-PREM</code> / <code>365</code> / <code>NO MAILBOX</code> comes from Exchange and Graph, never guessed from the mailbox size.</p></div>
       <div class="card"><h3>Real MFA status</h3><p>Registered or not, which methods, the default one and the legacy per-user state, for every user.</p></div>
-      <div class="card"><h3>Attention list</h3><p>On-prem mailboxes to migrate, licensed users without MFA, licenses on disabled accounts, inactive and unsynced accounts.</p></div>
+      <div class="card"><h3>Attention list</h3><p>On-prem mailboxes to migrate, licensed users without MFA, licenses on disabled accounts, inactive and unsynced accounts, exploitable vulnerabilities.</p></div>
       <div class="card"><h3>AD &harr; Entra ID sync check</h3><p>ImmutableId vs AD anchor, accounts that will soft-match or conflict at the next sync, provisioning errors.</p></div>
       <div class="card"><h3>Export: FULL, presets or your columns</h3><p>Formatted Excel or CSV. Everything, a preset (sign-ins, licenses, migration, MFA, directory) or only the columns you tick.</p></div>
       <div class="card"><h3>Fast, targeted loads</h3><p>With a preset, HybridScope reads only the data those columns need: a sign-in report does not wait for mailboxes and MFA.</p></div>
-      <div class="card"><h3>User card</h3><p>Double-click a user: AD, mailboxes, OneDrive, MFA, licenses, AD and Entra groups and roles in one window.</p></div>
+      <div class="card"><h3>User card</h3><p>Double-click a user: AD, mailboxes, OneDrive, MFA, licenses, AD and Entra groups and roles, and their PCs in one window.</p></div>
       <div class="card"><h3>Scheduled reports</h3><p><code>-Auto</code> with certificate sign-in: a daily Excel report, a <code>LATEST</code> copy to share and a trend history.</p></div>
       <div class="card"><h3>Works outside the domain</h3><p>Windows credentials or a domain user and password with Kerberos. English and Italian interface.</p></div>
     </div>
   </div>
 </section>
 
-<section id="modes" class="alt">
+<section id="security" class="alt">
+  <div class="wrap">
+    <h2>Security with Microsoft Defender</h2>
+    <p class="sub">Bought Microsoft 365 Business Premium? HybridScope reads Defender for Business / Defender for Endpoint and shows, user by user, which PCs need attention and how to fix them.</p>
+    <div class="grid">
+      <div class="card"><h3>User &rarr; PC &rarr; what to fix</h3><p>One row per licensed user and PC: OS, last seen, risk and exposure, antivirus, alerts, vulnerabilities by severity, exploitable ones, missing KBs, software to update or out of support.</p></div>
+      <div class="card"><h3>Vulnerabilities with the fix</h3><p>Every CVE with CVSS and exploit level, and the fix: the KB to install or the software version to update to. Exploitable first.</p></div>
+      <div class="card"><h3>A prioritized to-do list</h3><p>Each KB, update, software to replace and weak configuration, with how many PCs and CVEs it fixes and which PCs.</p></div>
+      <div class="card"><h3>Only the right users</h3><p>Filtered by license service plan: users with Teams Essentials or Business Standard, and the PCs used only by them, stay out of the report.</p></div>
+      <div class="card"><h3>No Intune needed</h3><p>PCs are linked to users from the logons Defender records: domain-joined or Entra-joined, it works either way. Another antivirus can stay.</p></div>
+      <div class="card"><h3>Your own sign-in</h3><p>Browser sign-in through a HybridScope app registered once per tenant: no certificates or secrets in the GUI. Certificate only for scheduled reports.</p></div>
+    </div>
+    <h3 style="margin:32px 0 8px;color:var(--navy)">One-time setup</h3>
+    <ol class="steps">
+      <li><strong>Onboard the PCs to Defender</strong> (security.microsoft.com &gt; Settings &gt; Endpoints &gt; Onboarding). A license alone is not enough, and a PC protected by another antivirus is not onboarded by itself.</li>
+      <li><strong>Register the HybridScope app</strong>, as a Global Administrator: <code>.\tools\New-HybridScopeApp.ps1 -TenantId contoso.onmicrosoft.com -Defender</code>, or by hand in the Entra admin center.</li>
+      <li>Give the HybridScope users a Defender role such as <strong>Security Reader</strong>.</li>
+      <li>Tick <strong>Defender</strong>, choose FULL and click <strong>Load data</strong>.</li>
+    </ol>
+    <p class="note">Step-by-step guide, by script and by hand: <a href="https://github.com/Thonno/hybridscope#microsoft-defender-security">README &gt; Microsoft Defender</a>.</p>
+  </div>
+</section>
+
+<section id="modes">
   <div class="wrap">
     <h2>Pick your infrastructure</h2>
     <p class="sub">One click at the top of the window: tabs, columns and overview adapt to the sources you have.</p>
@@ -148,7 +174,7 @@
   </div>
 </section>
 
-<section>
+<section class="alt">
   <div class="wrap">
     <h2>Screenshots</h2>
     <p class="sub">Sensitive data (users, domains, servers, OU names) is blurred.</p>
@@ -161,7 +187,7 @@
   </div>
 </section>
 
-<section id="start" class="alt">
+<section id="start">
   <div class="wrap">
     <h2>Get started</h2>
     <p class="sub">Windows 10 / 11 or Windows Server 2016+, Windows PowerShell 5.1 (built into Windows).</p>
@@ -172,8 +198,9 @@
 Get-ChildItem C:\HybridScope -Recurse | Unblock-File</code></pre></li>
       <li>Double-click <code>Start-HybridScope.cmd</code>. Missing modules (<code>Microsoft.Graph.Authentication</code>, <code>ImportExcel</code>, <code>ActiveDirectory</code>) are offered for installation.</li>
       <li>Choose your mode, connect, pick what to export and click <strong>Load data</strong>.</li>
+      <li>For the security tabs, do the <a href="#security">one-time Defender setup</a>.</li>
     </ol>
-    <p class="note">Minimum permissions: any domain user for AD, <em>View-Only Organization Management</em> for Exchange, <em>Global Reader</em> plus a one-time admin consent to read-only Graph permissions for Microsoft 365. Your data never leaves your network: HybridScope only talks to your AD, your Exchange server and Microsoft Graph. <a href="https://github.com/Thonno/hybridscope#readme">Full documentation</a>.</p>
+    <p class="note">Minimum permissions: any domain user for AD, <em>View-Only Organization Management</em> for Exchange, <em>Global Reader</em> plus a one-time admin consent to read-only Graph permissions for Microsoft 365, a Defender role such as <em>Security Reader</em> for the security tabs. Your data never leaves your network: HybridScope only talks to your AD, your Exchange server, Microsoft Graph and the Defender API. <a href="https://github.com/Thonno/hybridscope#readme">Full documentation</a>.</p>
   </div>
 </section>
 
@@ -192,7 +219,7 @@ Get-ChildItem C:\HybridScope -Recurse | Unblock-File</code></pre></li>
 <footer>
   <div class="wrap">
     HybridScope by <a href="https://github.com/Thonno">Thonno</a> &middot; <a href="https://github.com/Thonno/hybridscope">github.com/Thonno/hybridscope</a> &middot; MIT License<br>
-    HybridScope is an independent project and is not affiliated with, endorsed or sponsored by Microsoft. Microsoft 365, Exchange, Entra ID and Active Directory are trademarks of the Microsoft group of companies.
+    HybridScope is an independent project and is not affiliated with, endorsed or sponsored by Microsoft. Microsoft 365, Exchange, Entra ID, Defender and Active Directory are trademarks of the Microsoft group of companies.
   </div>
 </footer>
 

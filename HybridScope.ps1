@@ -195,7 +195,7 @@ param(
     [string]$ConfigPath
 )
 
-$HS_Version = '1.6.0'
+$HS_Version = '1.7.0'
 $HS_Author = 'Thonno'
 $HS_Repo = 'Thonno/hybridscope'
 $HS_Links = @{
@@ -492,6 +492,7 @@ $Core = {
             'card.reload'       = 'Reload'
             'card.search'       = 'Search:'
             'card.groups'       = 'Groups and roles'
+            'card.defTitle'     = 'Defender: what to fix'
             'card.loading'      = 'Loading groups and roles...'
             'card.busy'         = 'Another operation is running: click Reload when it has finished.'
             'card.count'        = '{0} AD groups  ·  {1} Entra groups  ·  {2} Entra roles'
@@ -597,6 +598,65 @@ $Core = {
             'tab.attention'     = 'ATTENTION'
             'tab.sync'          = 'SYNC'
             'tab.history'       = 'HISTORY'
+            'tab.security'      = 'SECURITY'
+            'tab.vulns'         = 'VULNERABILITIES'
+            'tab.fixes'         = 'SECURITY_FIXES'
+            'tab.devNoUser'     = 'DEVICES_UNASSIGNED'
+            'log.defMap'        = 'Defender: {0} devices -> {1} used by users with a Defender license, {2} only by users without it, {3} only by accounts not found in AD / Entra{4}, {5} without interactive logons'
+            'def.rNoLogon'      = 'No interactive logon in Defender and no Entra owner (server, unused PC, recently onboarded)'
+            'log.defLogons'     = 'Defender: {0} logged-on accounts read ({1} interactive); Entra owner found for {2} of {3} Entra-joined devices'
+            'def.rOthers'       = 'Used only by users without a Defender license'
+            'def.rUnknown'      = 'Accounts not found in AD / Entra'
+            'def.byName'        = 'PC name: {0}'
+            'def.byNamePrefix'  = 'PC name:'
+            'def.byNameNote'    = 'User guessed from the PC name (no logons in Defender, no Entra owner)'
+            'log.defByName'     = 'Defender: {0} devices linked to a user from the PC name'
+            'chk.defender'      = 'Defender'
+            'tip.defender'      = 'Load data also reads Microsoft Defender (devices, vulnerabilities, fixes) for the users with a Defender license. Needs the HybridScope app registration (once per tenant, see README) and a Defender role such as Security Reader; the sign-in opens in the browser'
+            'log.defStart'      = 'Reading Microsoft Defender...'
+            'log.defMachines'   = 'Defender: {0} onboarded devices ({1} discovered, not onboarded)'
+            'log.defLogon'      = 'Defender: users logged on, device {0}/{1}...'
+            'log.defVulns'      = 'Defender: {0} vulnerability records ({1})'
+            'log.defDone'       = 'Defender: {0} users with a Defender license, {1} devices, {2} users without a device ({3} s)'
+            'warn.defNoApp'     = 'ClientId missing in config.json: register the HybridScope app once (tools\New-HybridScopeApp.ps1 -Defender, or by hand: README > Microsoft Defender)'
+            'warn.defNoCert'    = 'CertificateThumbprint missing in config.json: unattended runs read Defender with the app certificate (tools\New-HybridScopeApp.ps1)'
+            'warn.defForbidden' = 'access denied by Defender (403): the account needs a Defender role (e.g. Security Reader) and the app the admin consent to the Defender permissions'
+            'warn.defMsal'      = 'sign-in library (MSAL) not found in the Microsoft.Graph.Authentication module'
+            'warn.defSignIn'    = 'Defender sign-in not completed: {0}'
+            'log.defSignIn'     = 'Defender: sign in in the browser with your Microsoft 365 account...'
+            'warn.defCert'      = 'certificate {0} not found (with its private key) in Cert:\CurrentUser\My or Cert:\LocalMachine\My of this Windows account'
+            'warn.defFailed'    = 'Defender skipped: {0}'
+            'warn.defPart'      = 'Defender {0} not read: {1}'
+            'warn.defNoLicense' = 'Defender: no license of the tenant includes {0} (DefenderLicensePlans)'
+            'warn.defFallback'  = 'Defender: vulnerability export not available, basic list used (no CVSS, exploit from the recommendations): {0}'
+            'val.main'          = 'Main'
+            'val.other'         = 'Other'
+            'def.noDevice'      = 'No device in Defender with a logon of this user (last {0} days)'
+            'def.notSeen'       = 'Not seen by Defender for {0} days'
+            'def.sensor'        = 'Sensor: {0}'
+            'def.avOld'         = 'not up to date'
+            'def.domainAdmin'   = '{0} domain admin account(s) log on to this PC'
+            'def.osEos'         = '{0}: operating system out of support'
+            'def.fixKb'         = 'Install {0}'
+            'def.fixUpdate'     = 'Update {0}'
+            'def.fixEol'        = 'Replace or uninstall {0}'
+            'def.typeKb'        = 'Windows update'
+            'def.typeApp'       = 'Update'
+            'def.typeEol'       = 'Out of support'
+            'def.typeConfig'    = 'Configuration'
+            'def.sources'       = 'Defender: exposure score {0}, Secure Score for devices {1}'
+            'att.c8'            = '8 - Exploitable or critical vulnerabilities on the PC (see SECURITY)'
+            'att.c9'            = '9 - Defender license, no device in Defender'
+            'att.vulns'         = 'Critical: {0}, exploitable: {1} ({2})'
+            'm.sec.defender'    = 'SECURITY (DEFENDER)'
+            'm.defUsers'        = 'Users with a Defender license'
+            'm.defNoDevice'     = 'Defender license, no device in Defender'
+            'm.defDevices'      = 'Their devices'
+            'm.defHighRisk'     = 'Users with a high-risk device'
+            'm.defCritical'     = 'Users with critical vulnerabilities'
+            'm.defExploit'      = 'Users with exploitable vulnerabilities'
+            'm.defStale'        = 'Users with a device not seen for >{0} days'
+            'card.sec.defender' = 'Defender - {0}'
             'grp.other'         = 'OTHER'
             'grp.cloud'         = 'CLOUD_ONLY'
             'grp.all'           = 'ALL'
@@ -873,6 +933,7 @@ $Core = {
             'card.reload'       = 'Ricarica'
             'card.search'       = 'Cerca:'
             'card.groups'       = 'Gruppi e ruoli'
+            'card.defTitle'     = 'Defender: cosa sistemare'
             'card.loading'      = 'Caricamento gruppi e ruoli...'
             'card.busy'         = "C'è un'altra operazione in corso: premi Ricarica quando è finita."
             'card.count'        = '{0} gruppi AD  ·  {1} gruppi Entra  ·  {2} ruoli Entra'
@@ -978,6 +1039,65 @@ $Core = {
             'tab.attention'     = 'DA_ATTENZIONARE'
             'tab.sync'          = 'SYNC'
             'tab.history'       = 'STORICO'
+            'tab.security'      = 'SICUREZZA'
+            'tab.vulns'         = 'VULNERABILITÀ'
+            'tab.fixes'         = 'INTERVENTI_SICUREZZA'
+            'tab.devNoUser'     = 'DISPOSITIVI_NON_ASSEGNATI'
+            'log.defMap'        = 'Defender: {0} dispositivi -> {1} usati da utenti con licenza Defender, {2} solo da utenti senza, {3} solo da account non trovati in AD / Entra{4}, {5} senza accessi interattivi'
+            'def.rNoLogon'      = 'Nessun accesso interattivo in Defender e nessun proprietario Entra (server, PC non usato, registrato da poco)'
+            'log.defLogons'     = 'Defender: {0} account di accesso letti ({1} interattivi); proprietario Entra trovato per {2} dei {3} dispositivi uniti a Entra'
+            'def.rOthers'       = 'Usato solo da utenti senza licenza Defender'
+            'def.rUnknown'      = 'Account non trovati in AD / Entra'
+            'def.byName'        = 'Nome PC: {0}'
+            'def.byNamePrefix'  = 'Nome PC:'
+            'def.byNameNote'    = 'Utente dedotto dal nome del PC (nessun accesso in Defender, nessun proprietario Entra)'
+            'log.defByName'     = 'Defender: {0} dispositivi collegati a un utente dal nome del PC'
+            'chk.defender'      = 'Defender'
+            'tip.defender'      = 'Carica dati legge anche Microsoft Defender (dispositivi, vulnerabilità, interventi) per gli utenti con una licenza Defender. Serve l''app HybridScope registrata (una volta per tenant, vedi README) e un ruolo Defender come Lettore sicurezza; l''accesso si apre nel browser'
+            'log.defStart'      = 'Lettura di Microsoft Defender...'
+            'log.defMachines'   = 'Defender: {0} dispositivi registrati ({1} rilevati in rete, non registrati)'
+            'log.defLogon'      = 'Defender: utenti che accedono, dispositivo {0}/{1}...'
+            'log.defVulns'      = 'Defender: {0} righe di vulnerabilità ({1})'
+            'log.defDone'       = 'Defender: {0} utenti con licenza Defender, {1} dispositivi, {2} utenti senza dispositivo ({3} s)'
+            'warn.defNoApp'     = 'ClientId mancante in config.json: registrare una volta l''app HybridScope (tools\New-HybridScopeApp.ps1 -Defender, oppure a mano: README > Microsoft Defender)'
+            'warn.defNoCert'    = 'CertificateThumbprint mancante in config.json: le esecuzioni pianificate leggono Defender con il certificato dell''app (tools\New-HybridScopeApp.ps1)'
+            'warn.defForbidden' = 'accesso negato da Defender (403): all''account serve un ruolo Defender (es. Lettore sicurezza) e all''app il consenso amministratore ai permessi Defender'
+            'warn.defMsal'      = 'libreria di accesso (MSAL) non trovata nel modulo Microsoft.Graph.Authentication'
+            'warn.defSignIn'    = 'accesso a Defender non completato: {0}'
+            'log.defSignIn'     = 'Defender: accedi nel browser con il tuo account Microsoft 365...'
+            'warn.defCert'      = 'certificato {0} non trovato (con chiave privata) in Cert:\CurrentUser\My o Cert:\LocalMachine\My di questo account Windows'
+            'warn.defFailed'    = 'Defender saltato: {0}'
+            'warn.defPart'      = 'Defender {0} non letto: {1}'
+            'warn.defNoLicense' = 'Defender: nessuna licenza del tenant include {0} (DefenderLicensePlans)'
+            'warn.defFallback'  = 'Defender: export vulnerabilità non disponibile, usato l''elenco base (niente CVSS, exploit dalle raccomandazioni): {0}'
+            'val.main'          = 'Principale'
+            'val.other'         = 'Altro'
+            'def.noDevice'      = 'Nessun dispositivo in Defender con accessi di questo utente (ultimi {0} giorni)'
+            'def.notSeen'       = 'Non visto da Defender da {0} giorni'
+            'def.sensor'        = 'Sensore: {0}'
+            'def.avOld'         = 'non aggiornato'
+            'def.domainAdmin'   = '{0} account amministratore di dominio accedono a questo PC'
+            'def.osEos'         = '{0}: sistema operativo fuori supporto'
+            'def.fixKb'         = 'Installare {0}'
+            'def.fixUpdate'     = 'Aggiornare {0}'
+            'def.fixEol'        = 'Sostituire o disinstallare {0}'
+            'def.typeKb'        = 'Aggiornamento Windows'
+            'def.typeApp'       = 'Aggiornamento'
+            'def.typeEol'       = 'Fuori supporto'
+            'def.typeConfig'    = 'Configurazione'
+            'def.sources'       = 'Defender: punteggio di esposizione {0}, Secure Score dispositivi {1}'
+            'att.c8'            = '8 - Vulnerabilità sfruttabili o critiche sul PC (vedi SICUREZZA)'
+            'att.c9'            = '9 - Licenza Defender, nessun dispositivo in Defender'
+            'att.vulns'         = 'Critiche: {0}, sfruttabili: {1} ({2})'
+            'm.sec.defender'    = 'SICUREZZA (DEFENDER)'
+            'm.defUsers'        = 'Utenti con licenza Defender'
+            'm.defNoDevice'     = 'Licenza Defender, nessun dispositivo in Defender'
+            'm.defDevices'      = 'Loro dispositivi'
+            'm.defHighRisk'     = 'Utenti con un dispositivo ad alto rischio'
+            'm.defCritical'     = 'Utenti con vulnerabilità critiche'
+            'm.defExploit'      = 'Utenti con vulnerabilità sfruttabili'
+            'm.defStale'        = 'Utenti con un dispositivo non visto da >{0} giorni'
+            'card.sec.defender' = 'Defender - {0}'
             'grp.other'         = 'ALTRI'
             'grp.cloud'         = 'SOLO_CLOUD'
             'grp.all'           = 'TUTTI'
@@ -1006,6 +1126,12 @@ $Core = {
             OnPremSpace_GB = 'SpazioOnPrem_GB'; Space365_GB = 'Spazio365_GB'; MFA_Percent = 'MFA_Percentuale'; LicensedWithoutMFA = 'LicenziatiSenzaMFA'
             SyncIssues = 'ProblemiSync'; Anchor_AD = 'Ancora_AD'; AnchorSource = 'FonteAncora'; SyncEnabled = 'SyncAttivo'; LastSync = 'UltimoSync'
             Source = 'Fonte'; Membership = 'Appartenenza'
+            Device = 'Dispositivo'; UserRole = 'RuoloUtente'; DeviceLastLogon = 'UltimoAccessoPC'; DeviceUsers = 'UtentiPC'; OS = 'SO'; OsBuild = 'BuildSO'
+            LastSeen = 'UltimoContatto'; Sensor = 'Sensore'; Risk = 'Rischio'; Exposure = 'Esposizione'; Alerts = 'Avvisi'
+            Vuln_Critical = 'Vuln_Critiche'; Vuln_High = 'Vuln_Alte'; Vuln_Medium = 'Vuln_Medie'; Vuln_Low = 'Vuln_Basse'; Exploitable = 'Sfruttabili'
+            MissingKB = 'KB_Mancanti'; AppsToUpdate = 'SoftwareDaAggiornare'; EOL_Software = 'SoftwareFuoriSupporto'; ConfigIssues = 'ConfigurazioniDeboli'
+            Severity = 'Gravità'; Version = 'Versione'; Fix = 'Intervento'; FirstSeen = 'PrimaRilevazione'; Devices = 'Dispositivi'
+            MaxSeverity = 'GravitàMax'; DeviceList = 'ElencoDispositivi'; Reason = 'Motivo'; Accounts = 'Account'
         }
     }
 
@@ -1106,6 +1232,12 @@ $Core = {
             ExportPresets          = [ordered]@{}
             AutoExportPreset       = 'Full'
             ExportFastLoad         = $true
+            Defender               = $false
+            DefenderLicensePlans   = @('MDE_SMB', 'MDE_LITE', 'WINDEFATP')
+            DefenderDays           = 30
+            DefenderMinSeverity    = 'High'
+            DefenderUnassignedDevices = $false
+            DefenderMatchByName    = $true
         }
     }
 
@@ -1252,7 +1384,7 @@ $Core = {
         $scopes = 'User.Read.All', 'AuditLog.Read.All', 'Reports.Read.All', 'UserAuthenticationMethod.Read.All', 'Organization.Read.All', 'Policy.Read.All'
         # Group names and Entra roles for the user card. Asked for separately so a tenant where an admin
         # has not consented to them yet still connects with the base permissions.
-        $cardScopes = 'GroupMember.Read.All', 'RoleManagement.Read.Directory'
+        $cardScopes = 'GroupMember.Read.All', 'RoleManagement.Read.Directory', 'Device.Read.All'
         $connectParams = @{ NoWelcome = $true }
         if ($Cfg.TenantId) { $connectParams.TenantId = $Cfg.TenantId }
         if ($Unattended) {
@@ -2001,6 +2133,584 @@ $Core = {
         [pscustomobject]@{ Rows = @($rows | Sort-Object Source, Membership, Name); Errors = @($errors); AD = $countAD; Entra = $countEntra; Roles = $countRoles }
     }
 
+    # --------------------------------------------------------------------------- Microsoft Defender (read-only)
+    # Defender for Business / Defender for Endpoint API, through the HybridScope app registration (ClientId):
+    # browser sign-in of the user in the GUI (delegated), certificate for -Auto (app-only). Setup: tools\New-HybridScopeApp.ps1 -Defender.
+    $script:HS_DefApi = 'https://api.security.microsoft.com'
+    $script:HS_SevRank = @{ Critical = 4; High = 3; Medium = 2; Low = 1 }
+    $script:HS_EosOs = 'Windows7', 'Windows8', 'Windows8Blue', 'Windows10', 'WindowsServer2008R2', 'WindowsServer2012', 'WindowsServer2012R2'
+
+    function ConvertTo-HSBase64Url { param([byte[]]$Bytes) [Convert]::ToBase64String($Bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_') }
+
+    function ConvertTo-HSUtcDate {
+        # Defender export dates come as "2026-11-03 10:13:34.8476880" (UTC, no zone)
+        param($Value)
+        if (-not $Value) { return $null }
+        $text = "$Value".Trim() -replace ' ', 'T'
+        if ($text -notmatch '(Z|[+-]\d\d:\d\d)$') { $text += 'Z' }
+        ConvertTo-LocalDate $text
+    }
+
+    function Format-HSSoftware {
+        # "google" + "chrome" -> "Google Chrome"; "microsoft" + "windows_10" -> "Microsoft Windows 10"
+        param([string]$Vendor, [string]$Name)
+        $text = (@($Vendor, $Name) | Where-Object { $_ } | ForEach-Object { $_ -replace '_', ' ' }) -join ' '
+        (Get-Culture).TextInfo.ToTitleCase($text)
+    }
+
+    function Get-HSDefenderUserToken {
+        <#
+        .SYNOPSIS
+            Delegated token for the Microsoft Defender API: browser sign-in of the user (same as Connect 365) through the
+            HybridScope app registration (public client, redirect http://localhost). MSAL comes with Microsoft.Graph.Authentication.
+            The account is kept for the session: renewals are silent.
+        #>
+        param($Cfg, [string]$Tenant, [string]$LoginHint)
+        if (-not ('Microsoft.Identity.Client.PublicClientApplicationBuilder' -as [type])) {
+            $module = Get-Module Microsoft.Graph.Authentication
+            if (-not $module) { $module = Get-Module Microsoft.Graph.Authentication -ListAvailable | Sort-Object Version -Descending | Select-Object -First 1 }
+            $dll = if ($module) { Get-ChildItem $module.ModuleBase -Recurse -Filter 'Microsoft.Identity.Client.dll' -ErrorAction SilentlyContinue | Sort-Object { $_.FullName -notmatch 'Desktop|net4' } | Select-Object -First 1 }
+            if (-not $dll) { throw (T 'warn.defMsal') }
+            Add-Type -Path $dll.FullName
+        }
+        $scopes = [string[]]@('https://api.securitycenter.microsoft.com/.default')
+        $state = $script:HS_DefUser
+        if (-not $state -or $state.ClientId -ne "$($Cfg.ClientId)" -or $state.Tenant -ne $Tenant) {
+            $app = [Microsoft.Identity.Client.PublicClientApplicationBuilder]::Create("$($Cfg.ClientId)").WithAuthority("https://login.microsoftonline.com/$Tenant").WithRedirectUri('http://localhost').Build()
+            $state = $script:HS_DefUser = @{ App = $app; Account = $null; ClientId = "$($Cfg.ClientId)"; Tenant = $Tenant }
+        }
+        $result = $null
+        if ($state.Account) { try { $result = $state.App.AcquireTokenSilent($scopes, $state.Account).ExecuteAsync().GetAwaiter().GetResult() } catch { $result = $null } }
+        if (-not $result) {
+            Write-HSLog (T 'log.defSignIn')
+            $request = $state.App.AcquireTokenInteractive($scopes).WithUseEmbeddedWebView($false)
+            if ($LoginHint) { $request = $request.WithLoginHint($LoginHint) }
+            $task = $request.ExecuteAsync()
+            try { $done = $task.Wait([TimeSpan]::FromMinutes(5)) }
+            catch {
+                $inner = $_.Exception; while ($inner.InnerException) { $inner = $inner.InnerException }
+                throw (T 'warn.defSignIn' $inner.Message)
+            }
+            if (-not $done) { throw (T 'warn.defSignIn' 'timeout (5 min)') }
+            $result = $task.Result
+        }
+        $state.Account = $result.Account
+        $script:HS_DefToken = @{ Value = $result.AccessToken; Expires = $result.ExpiresOn.LocalDateTime.AddMinutes(-5); Cfg = $Cfg }
+    }
+
+    function Get-HSDefenderToken {
+        <#
+        .SYNOPSIS
+            Token for the Microsoft Defender API, always through the HybridScope app registration (ClientId):
+            - Graph signed in as a user (GUI, -Auto interactive): the same user signs in to Defender in the browser (delegated);
+            - Graph signed in as the app (-Auto with certificate): app-only, client assertion signed with the certificate.
+        #>
+        param($Cfg)
+        $ctx = $null
+        try { $ctx = Get-MgContext } catch { }
+        $tenant = "$($Cfg.TenantId)"
+        if (-not $tenant -and $ctx) { $tenant = "$($ctx.TenantId)" }
+        if (-not $Cfg.ClientId -or -not $tenant) { throw (T 'warn.defNoApp') }
+        if ("$($ctx.AuthType)" -ne 'AppOnly') { Get-HSDefenderUserToken -Cfg $Cfg -Tenant $tenant -LoginHint "$($ctx.Account)"; return }
+        if (-not $Cfg.CertificateThumbprint) { throw (T 'warn.defNoCert') }
+        $thumb = "$($Cfg.CertificateThumbprint)".Trim().ToUpper()
+        $cert = $null
+        foreach ($store in 'CurrentUser', 'LocalMachine') { if (-not $cert) { $cert = Get-Item "Cert:\$store\My\$thumb" -ErrorAction SilentlyContinue } }
+        if (-not $cert -or -not $cert.HasPrivateKey) { throw (T 'warn.defCert' $thumb) }
+        $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+        $tokenUrl = "https://login.microsoftonline.com/$tenant/oauth2/v2.0/token"
+        $header = [ordered]@{ alg = 'RS256'; typ = 'JWT'; x5t = (ConvertTo-HSBase64Url $cert.GetCertHash()) } | ConvertTo-Json -Compress
+        $payload = [ordered]@{ aud = $tokenUrl; iss = "$($Cfg.ClientId)"; sub = "$($Cfg.ClientId)"; jti = [guid]::NewGuid().ToString(); nbf = $now - 60; exp = $now + 600 } | ConvertTo-Json -Compress
+        $unsigned = (ConvertTo-HSBase64Url ([Text.Encoding]::UTF8.GetBytes($header))) + '.' + (ConvertTo-HSBase64Url ([Text.Encoding]::UTF8.GetBytes($payload)))
+        $rsa = [System.Security.Cryptography.X509Certificates.RSACertificateExtensions]::GetRSAPrivateKey($cert)
+        $signature = $rsa.SignData([Text.Encoding]::UTF8.GetBytes($unsigned), [System.Security.Cryptography.HashAlgorithmName]::SHA256, [System.Security.Cryptography.RSASignaturePadding]::Pkcs1)
+        $body = @{
+            client_id             = "$($Cfg.ClientId)"
+            scope                 = 'https://api.securitycenter.microsoft.com/.default'
+            grant_type            = 'client_credentials'
+            client_assertion_type = 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer'
+            client_assertion      = $unsigned + '.' + (ConvertTo-HSBase64Url $signature)
+        }
+        [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+        $response = Invoke-RestMethod -Method POST -Uri $tokenUrl -Body $body -ContentType 'application/x-www-form-urlencoded' -UseBasicParsing
+        $script:HS_DefToken = @{ Value = $response.access_token; Expires = (Get-Date).AddSeconds([int]$response.expires_in - 300); Cfg = $Cfg }
+    }
+
+    function Invoke-HSDefender {
+        <#
+        .SYNOPSIS
+            GET on the Defender API: follows @odata.nextLink, renews the token, waits and retries on 429 / 5xx (Retry-After).
+            Returns the items of every page; -Single returns the response as it is.
+        #>
+        param([string]$Path, [switch]$Single)
+        $out = [System.Collections.Generic.List[object]]::new()
+        $uri = if ($Path -match '^https://') { $Path } else { $script:HS_DefApi + $Path }
+        while ($uri) {
+            if ((Get-Date) -gt $script:HS_DefToken.Expires) { Get-HSDefenderToken $script:HS_DefToken.Cfg }
+            $page = $null
+            for ($try = 1; $null -eq $page; $try++) {
+                try { $page = Invoke-RestMethod -Method GET -Uri $uri -Headers @{ Authorization = "Bearer $($script:HS_DefToken.Value)" } -UseBasicParsing -TimeoutSec 600 }
+                catch {
+                    $status = 0; $wait = 0
+                    try { $status = [int]$_.Exception.Response.StatusCode; $wait = [int]"$($_.Exception.Response.Headers['Retry-After'])" } catch { }
+                    if ($try -ge 6 -or $status -notin 429, 500, 502, 503, 504) { throw }
+                    Start-Sleep -Seconds ([math]::Min(120, [math]::Max($wait, 5 * $try)))
+                }
+            }
+            if ($Single) { return $page }
+            if ($null -ne $page.value) { foreach ($item in $page.value) { $out.Add($item) } }
+            $uri = $page.'@odata.nextLink'
+        }
+        , $out
+    }
+
+    function Get-HSDefender {
+        <#
+        .SYNOPSIS
+            Reads Microsoft Defender: onboarded devices, users logged on to each device, antivirus health, vulnerabilities,
+            security recommendations, software out of support, weak configurations, open alerts, scores. Read-only.
+            Every part except devices and logged-on users is optional: if one is not available (permission, plan) a warning is logged.
+        #>
+        param($Cfg)
+        $timer = [Diagnostics.Stopwatch]::StartNew()
+        Write-HSLog (T 'log.defStart')
+        Get-HSDefenderToken $Cfg
+        $part = { param([string]$What, [scriptblock]$Block) try { & $Block } catch { Write-HSLog (T 'warn.defPart' @($What, $_.Exception.Message)) 'WARN' } }
+
+        try { $all = Invoke-HSDefender '/api/machines?$top=10000' }
+        catch { if ("$($_.Exception.Message)" -match '\(403\)|Forbidden') { throw (T 'warn.defForbidden') }; throw }
+        $machines = @($all | Where-Object { "$($_.onboardingStatus)" -eq 'Onboarded' })
+        Write-HSLog (T 'log.defMachines' @($machines.Count, ($all.Count - $machines.Count)))
+
+        # users logged on to each device: one call per device (Defender limit 100 calls per minute)
+        $logons = @{}; $logonErrors = 0; $i = 0
+        foreach ($machine in $machines) {
+            $i++
+            if ($i % 25 -eq 0) { Write-HSLog (T 'log.defLogon' @($i, $machines.Count)) }
+            try { $list = Invoke-HSDefender "/api/machines/$($machine.id)/logonusers"; $logons["$($machine.id)"] = @($list) }
+            catch {
+                if ($i -eq 1) { throw (T 'warn.defPart' @('logonusers (User.Read.All)', $_.Exception.Message)) }
+                $logonErrors++
+            }
+            Start-Sleep -Milliseconds 620
+        }
+        if ($logonErrors) { Write-HSLog (T 'warn.defPart' @('logonusers', "$logonErrors device")) 'WARN' }
+
+        # Entra ID owner / registered user of the device (Entra-joined PCs): fallback when Defender has no logons for a PC
+        $owners = @{}
+        & $part 'Entra device owners (Graph Device.Read.All)' {
+            foreach ($machine in @($machines | Where-Object { $_.aadDeviceId -and "$($_.aadDeviceId)" -ne '00000000-0000-0000-0000-000000000000' })) {
+                $list = [System.Collections.Generic.List[string]]::new()
+                foreach ($rel in 'registeredOwners', 'registeredUsers') {
+                    $response = Invoke-MgGraphRequest -Method GET -Uri "v1.0/devices(deviceId='$($machine.aadDeviceId)')/$rel`?`$select=userPrincipalName" -OutputType PSObject
+                    foreach ($item in @($response.value)) { if ($item.userPrincipalName -and -not $list.Contains("$($item.userPrincipalName)")) { $list.Add("$($item.userPrincipalName)") } }
+                }
+                if ($list.Count) { $owners["$($machine.id)"] = $list }
+            }
+        }
+        $logonCount = 0; $interactiveCount = 0
+        foreach ($list in $logons.Values) { foreach ($logon in $list) { $logonCount++; if ("$($logon.logonTypes)" -match 'Interactive|Unlock') { $interactiveCount++ } } }
+        Write-HSLog (T 'log.defLogons' @($logonCount, $interactiveCount, $owners.Count, @($machines | Where-Object { $_.aadDeviceId }).Count))
+
+        $av = @{}
+        & $part 'antivirus (Machine.Read.All)' { foreach ($row in (Invoke-HSDefender '/api/deviceavinfo?$top=10000')) { $av["$($row.machineId)"] = $row } }
+
+        $recs = @{}
+        & $part 'recommendations (SecurityRecommendation.Read.All)' { foreach ($row in (Invoke-HSDefender '/api/recommendations')) { $recs["$($row.id)"] = $row } }
+
+        # vulnerabilities: the per-device export has CVSS and exploit level; the basic list is the fallback
+        $vulns = [System.Collections.Generic.List[object]]::new()
+        try {
+            foreach ($row in (Invoke-HSDefender '/api/machines/SoftwareVulnerabilitiesByMachine?pageSize=20000')) {
+                $vulns.Add([pscustomobject]@{
+                        MachineId = "$($row.DeviceId)"; Cve = "$($row.CveId)"; Severity = "$($row.VulnerabilitySeverityLevel)"; Cvss = $row.CvssScore
+                        Exploit = "$($row.ExploitabilityLevel)"; Vendor = "$($row.SoftwareVendor)"; Software = "$($row.SoftwareName)"; Version = "$($row.SoftwareVersion)"
+                        KbId = "$($row.RecommendedSecurityUpdateId)"; KbName = "$($row.RecommendedSecurityUpdate)"; RecRef = "$($row.RecommendationReference)"
+                        FirstSeen = ConvertTo-HSUtcDate $row.FirstSeenTimestamp
+                    })
+            }
+            Write-HSLog (T 'log.defVulns' @($vulns.Count, 'SoftwareVulnerabilitiesByMachine'))
+        }
+        catch {
+            Write-HSLog (T 'warn.defFallback' $_.Exception.Message) 'WARN'
+            $vulns.Clear()
+            & $part 'vulnerabilities (Vulnerability.Read.All)' {
+                $skip = 0
+                do {
+                    $page = @((Invoke-HSDefender "/api/vulnerabilities/machinesVulnerabilities?`$top=10000&`$skip=$skip" -Single).value)
+                    foreach ($row in $page) {
+                        $recRef = "va-_-$($row.productVendor)-_-$($row.productName)"
+                        $rec = $recs[$recRef]
+                        $vulns.Add([pscustomobject]@{
+                                MachineId = "$($row.machineId)"; Cve = "$($row.cveId)"; Severity = "$($row.severity)"; Cvss = $null
+                                Exploit = if ($rec -and $rec.publicExploit) { 'ExploitIsPublic' } else { '' }
+                                Vendor = "$($row.productVendor)"; Software = "$($row.productName)"; Version = "$($row.productVersion)"
+                                KbId = "$($row.fixingKbId)"; KbName = ''; RecRef = $recRef; FirstSeen = $null
+                            })
+                    }
+                    $skip += 10000
+                } while ($page.Count -eq 10000)
+                Write-HSLog (T 'log.defVulns' @($vulns.Count, 'machinesVulnerabilities'))
+            }
+        }
+
+        # software out of support (whole product), with the devices where it is installed
+        $eol = @{}
+        & $part 'software (Software.Read.All)' {
+            $softwareList = Invoke-HSDefender '/api/Software'
+            $eosSoftware = @($softwareList | Where-Object { "$($_.endOfSupportStatus)" -match 'EOS Software' -and "$($_.endOfSupportStatus)" -notmatch 'Upcoming' })
+            foreach ($software in @($eosSoftware | Select-Object -First 100)) {
+                $label = Format-HSSoftware $software.vendor $software.name
+                $eosDate = ConvertTo-LocalDate $software.endOfSupportDate
+                if ($eosDate) { $label += " (EOS $($eosDate.ToString('yyyy-MM')))" }
+                foreach ($ref in (Invoke-HSDefender "/api/Software/$($software.id)/machineReferences")) {
+                    if (-not $eol.ContainsKey("$($ref.id)")) { $eol["$($ref.id)"] = [System.Collections.Generic.List[string]]::new() }
+                    $eol["$($ref.id)"].Add($label)
+                }
+                Start-Sleep -Milliseconds 620
+            }
+        }
+
+        # weak configurations (applicable and not compliant)
+        $config = @{}
+        & $part 'secure configuration (Vulnerability.Read.All)' {
+            foreach ($row in (Invoke-HSDefender '/api/machines/SecureConfigurationsAssessmentByMachine?pageSize=50000')) {
+                if ("$($row.IsApplicable)" -ne 'True' -or "$($row.IsCompliant)" -eq 'True') { continue }
+                if (-not $config.ContainsKey("$($row.DeviceId)")) { $config["$($row.DeviceId)"] = [System.Collections.Generic.List[object]]::new() }
+                $config["$($row.DeviceId)"].Add([pscustomobject]@{ Name = "$($row.ConfigurationName)"; Impact = (ConvertTo-Num $row.ConfigurationImpact) })
+            }
+        }
+
+        # alerts not resolved, last 90 days
+        $alerts = @{}
+        & $part 'alerts (Alert.Read.All)' {
+            $since = (Get-Date).ToUniversalTime().AddDays(-90).ToString('yyyy-MM-ddTHH:mm:ssZ')
+            foreach ($alert in (Invoke-HSDefender ('/api/alerts?$filter=' + [uri]::EscapeDataString("alertCreationTime ge $since") + '&$top=10000'))) {
+                if ("$($alert.status)" -eq 'Resolved' -or -not $alert.machineId) { continue }
+                if (-not $alerts.ContainsKey("$($alert.machineId)")) { $alerts["$($alert.machineId)"] = [System.Collections.Generic.List[object]]::new() }
+                $alerts["$($alert.machineId)"].Add([pscustomobject]@{ Severity = "$($alert.severity)"; Title = "$($alert.title)" })
+            }
+        }
+
+        $exposure = & $part 'exposure score (Score.Read.All)' { (Invoke-HSDefender '/api/exposureScore' -Single).score }
+        $configScore = & $part 'configuration score (Score.Read.All)' { (Invoke-HSDefender '/api/configurationScore' -Single).score }
+
+        @{
+            Machines = $machines; NotOnboarded = ($all.Count - $machines.Count); Logons = $logons; Owners = $owners; Av = $av; Recs = $recs; Vulns = $vulns
+            Eol = $eol; Config = $config; Alerts = $alerts; Exposure = $exposure; ConfigScore = $configScore; Seconds = [math]::Round($timer.Elapsed.TotalSeconds)
+        }
+    }
+
+    function ConvertTo-HSSecurityData {
+        <#
+        .SYNOPSIS
+            Users with a Defender license -> their devices (users logged on in Defender) -> device state, vulnerabilities and fixes.
+            Users without a Defender license, and devices used only by them, are left out.
+        #>
+        param($Cfg, $Def, $Rows, $Skus, $EntraByUpn, [string]$NetBIOS)
+        $timer = [Diagnostics.Stopwatch]::StartNew()
+        $now = Get-Date
+        $days = [math]::Max(1, [int]$Cfg.DefenderDays)
+        $minRank = $script:HS_SevRank["$($Cfg.DefenderMinSeverity)"]; if (-not $minRank) { $minRank = 3 }
+        $yes = T 'val.yes'
+
+        # licenses that include Defender: service plans of Cfg.DefenderLicensePlans, not disabled for the user
+        $plans = @($Cfg.DefenderLicensePlans | ForEach-Object { "$_".Trim() } | Where-Object { $_ })
+        $skuPlans = @{}
+        foreach ($sku in $Skus) {
+            $ids = @($sku.servicePlans | Where-Object { $plans -contains "$($_.servicePlanName)" } | ForEach-Object { "$($_.servicePlanId)" })
+            if ($ids.Count) { $skuPlans["$($sku.skuId)"] = $ids }
+        }
+        if (-not $skuPlans.Count) { Write-HSLog (T 'warn.defNoLicense' ($plans -join ', ')) 'WARN' }
+        $inScope = [System.Collections.Generic.List[object]]::new()
+        foreach ($row in $Rows) {
+            if (-not $row.UPN -or -not $EntraByUpn.ContainsKey($row.UPN)) { continue }
+            $licensed = $false
+            foreach ($license in @($EntraByUpn[$row.UPN].assignedLicenses)) {
+                $ids = $skuPlans["$($license.skuId)"]
+                if (-not $ids) { continue }
+                $disabled = @($license.disabledPlans | ForEach-Object { "$_" })
+                if (@($ids | Where-Object { $disabled -notcontains $_ }).Count) { $licensed = $true; break }
+            }
+            if ($licensed) { $inScope.Add($row) }
+        }
+        $keyOf = { param($row) "$($row.Username)|$($row.UPN)" }
+        $licensedKeys = @{}
+        foreach ($row in $inScope) { $licensedKeys[(& $keyOf $row)] = $true }
+        # logged-on accounts -> report users (all of them: an account of a user without a Defender license is "known", not "unknown")
+        #   DOMAIN\sam -> AD username; AzureAD\name -> UPN prefix, or display name without spaces (how Windows names Entra accounts)
+        $flat = { param([string]$Text) ($Text -replace '[^\p{L}\p{N}]', '').ToLower() }
+        $bySam = @{}; $byLocal = @{}; $byFlat = @{}; $byUpn = @{}
+        foreach ($row in $Rows) {
+            if ($row.UPN) { $byUpn["$($row.UPN)".ToLower()] = $row }
+            if ($row.OU -and $row.Username) { $bySam["$($row.Username)".ToLower()] = $row }
+            $local = ("$($row.UPN)" -split '@')[0].ToLower()
+            $names = @($local, (& $flat $local), (& $flat "$($row.FirstName)$($row.LastName)"), (& $flat "$($row.LastName)$($row.FirstName)"))
+            if ($row.UPN -and $EntraByUpn.ContainsKey($row.UPN)) { $names += & $flat "$($EntraByUpn[$row.UPN].displayName)" }
+            foreach ($key in @($names | Where-Object { $_ } | Select-Object -Unique)) {
+                $map = if ($key -eq $local) { $byLocal } else { $byFlat }
+                if (-not $map.ContainsKey($key)) { $map[$key] = $row }
+            }
+        }
+        # PC name -> user (last resort, DefenderMatchByName): the username, or a surname found only once, inside the PC name (NET-FBACCI, PC-ROSSI)
+        $samList = @(foreach ($row in $Rows) { $key = & $flat "$($row.Username)"; if ($key.Length -ge 4) { [pscustomobject]@{ Key = $key; Row = $row } } })
+        $lastIndex = @{}
+        foreach ($row in $Rows) { $key = & $flat "$($row.LastName)"; if ($key.Length -ge 5) { if (-not $lastIndex.ContainsKey($key)) { $lastIndex[$key] = [System.Collections.Generic.List[object]]::new() }; $lastIndex[$key].Add($row) } }
+        $findByName = {
+            # candidates: username or unique surname inside the PC name; users with a Defender license first, then enabled ones;
+            # one candidate wins, or the one with the longest match (NET-DIFRAIA: ldifraia via "difraia" beats an old "fraia" account)
+            param([string]$Computer)
+            $name = & $flat $Computer
+            $hits = @(
+                foreach ($item in $samList) { if ($name.Contains($item.Key)) { [pscustomobject]@{ Row = $item.Row; Len = $item.Key.Length } } }
+                foreach ($key in $lastIndex.Keys) { if ($name.Contains($key) -and $lastIndex[$key].Count -eq 1) { [pscustomobject]@{ Row = $lastIndex[$key][0]; Len = $key.Length } } }
+            )
+            if (-not $hits.Count) { return $null }
+            foreach ($pool in @(
+                    @($hits | Where-Object { $licensedKeys.ContainsKey((& $keyOf $_.Row)) }),
+                    @($hits | Where-Object { $_.Row.Status -eq (T 'val.enabled') }),
+                    $hits)) {
+                if (-not $pool.Count) { continue }
+                $best = @($pool | Sort-Object Len -Descending)
+                $top = @($best | Where-Object { $_.Len -eq $best[0].Len } | ForEach-Object { $_.Row } | Select-Object -Unique)
+                if ($top.Count -eq 1) { return $top[0] }
+                return $null
+            }
+            $null
+        }
+        $findRow = {
+            param([string]$Name, [string]$Domain, [string]$Computer)
+            if ($Domain -eq $Computer) { return $null }                       # local account of the PC
+            if ($net -and $Domain -eq $net -and $bySam.ContainsKey($Name)) { return $bySam[$Name] }
+            if ($Domain -ne 'azuread' -and $bySam.ContainsKey($Name)) { return $bySam[$Name] }
+            if ($byLocal.ContainsKey($Name)) { return $byLocal[$Name] }
+            $key = & $flat $Name
+            if ($byFlat.ContainsKey($key)) { return $byFlat[$key] }
+            $null
+        }
+        $net = "$NetBIOS".ToLower()
+        $stats = @{ Licensed = 0; OthersOnly = 0; Unknown = 0; NoLogon = 0 }; $byNameCount = 0; $unknownNames = [System.Collections.Generic.List[string]]::new()
+
+        # vulnerabilities per device: one record per CVE (the most severe)
+        $vulnByDevice = @{}
+        foreach ($vuln in $Def.Vulns) {
+            if (-not $vulnByDevice.ContainsKey($vuln.MachineId)) { $vulnByDevice[$vuln.MachineId] = @{} }
+            $byCve = $vulnByDevice[$vuln.MachineId]
+            $key = "$($vuln.Cve)|$($vuln.Software)"
+            if (-not $byCve.ContainsKey($key)) { $byCve[$key] = $vuln }
+        }
+        $isExploit = { param($vuln) "$($vuln.Exploit)" -match 'ExploitIs' }
+        $exploitText = @{ ExploitIsPublic = 'Public'; ExploitIsVerified = 'Verified'; ExploitIsInKit = 'Exploit kit' }
+        $fixOf = {
+            param($vuln)
+            if ($vuln.KbId) {
+                $kb = if ("$($vuln.KbId)" -match '^\d+$') { "KB$($vuln.KbId)" } else { "$($vuln.KbId)" }
+                $text = T 'def.fixKb' $(if ($vuln.KbName) { "$kb ($($vuln.KbName))" } else { $kb })
+                return @{ Key = "kb|$kb"; Text = $text; Short = $kb; Type = (T 'def.typeKb') }
+            }
+            $rec = $Def.Recs[$vuln.RecRef]
+            $text = if ($rec -and $rec.recommendationName) { "$($rec.recommendationName)" } else { T 'def.fixUpdate' (Format-HSSoftware $vuln.Vendor $vuln.Software) }
+            if ($rec -and $rec.recommendedVersion -and $text -notlike "*$($rec.recommendedVersion)*") { $text += " -> $($rec.recommendedVersion)" }
+            $type = if ($rec -and $rec.remediationType) { "$($rec.remediationType)" } else { T 'def.typeApp' }
+            @{ Key = "app|$($vuln.RecRef)|$($vuln.Software)"; Text = $text; Short = $text; Type = $type }
+        }
+
+        # each device: its users (interactive logons in the last DefenderDays days of the device's activity) and its state
+        $devices = @{}
+        foreach ($machine in $Def.Machines) {
+            $id = "$($machine.id)"
+            $lastSeen = ConvertTo-LocalDate $machine.lastSeen
+            $since = $(if ($lastSeen) { $lastSeen } else { $now }).AddDays(-$days)
+            $short = ("$($machine.computerDnsName)" -split '\.')[0]
+            $users = @(foreach ($logon in @($Def.Logons[$id])) {
+                    $types = "$($logon.logonTypes)"
+                    if (($types -and $types -notmatch 'Interactive|Unlock') -or $logon.isOnlyNetworkUser -eq $true) { continue }   # empty type: kept
+                    $last = ConvertTo-LocalDate $logon.lastSeen
+                    if ($last -and $last -lt $since) { continue }
+                    $name = "$($logon.accountName)".ToLower(); $domain = "$($logon.accountDomain)".ToLower()
+                    $known = & $findRow $name $domain $short.ToLower()
+                    $licensedRow = if ($known -and $licensedKeys.ContainsKey((& $keyOf $known))) { $known } else { $null }
+                    [pscustomobject]@{ Row = $licensedRow; Known = [bool]$known; KnownRow = $known; Account = "$($logon.accountDomain)\$($logon.accountName)"; Last = $last; Admin = ($logon.isDomainAdmin -eq $true) }
+                })
+            # Entra owner / registered user of the PC: added when not already among the logons (no logon date)
+            foreach ($upn in @($Def.Owners[$id] | Where-Object { $_ })) {
+                $known = $byUpn["$upn".ToLower()]
+                if ($known -and @($users | Where-Object { $_.KnownRow -eq $known }).Count) { continue }
+                $licensedRow = if ($known -and $licensedKeys.ContainsKey((& $keyOf $known))) { $known } else { $null }
+                $users += [pscustomobject]@{ Row = $licensedRow; Known = [bool]$known; KnownRow = $known; Account = "Entra: $upn"; Last = $null; Admin = $false }
+            }
+            if (-not $users.Count -and $Cfg.DefenderMatchByName -ne $false) {
+                $known = & $findByName $short
+                if ($known) {
+                    $licensedRow = if ($licensedKeys.ContainsKey((& $keyOf $known))) { $known } else { $null }
+                    $users += [pscustomobject]@{ Row = $licensedRow; Known = $true; KnownRow = $known; Account = (T 'def.byName' $known.Username); Last = $null; Admin = $false }
+                    $byNameCount++
+                }
+            }
+            $reason = ''
+            if (@($users | Where-Object { $_.Row }).Count) { $stats.Licensed++ }
+            elseif (-not $users.Count) { $stats.NoLogon++; $reason = T 'def.rNoLogon' }
+            elseif (@($users | Where-Object { $_.Known }).Count) { $stats.OthersOnly++; $reason = T 'def.rOthers' }
+            else {
+                $stats.Unknown++; $reason = T 'def.rUnknown'
+                foreach ($user in $users) { if ($unknownNames.Count -lt 5 -and -not $unknownNames.Contains($user.Account)) { $unknownNames.Add($user.Account) } }
+            }
+            if ($reason -and -not $Cfg.DefenderUnassignedDevices) { continue }   # not linked to a user with a Defender license
+            $main = @($users | Sort-Object Last -Descending)[0]
+
+            $byCve = if ($vulnByDevice.ContainsKey($id)) { $vulnByDevice[$id] } else { @{} }
+            $counts = @{ Critical = 0; High = 0; Medium = 0; Low = 0 }; $exploitable = 0
+            $kbs = [System.Collections.Generic.List[string]]::new(); $apps = [System.Collections.Generic.List[string]]::new()
+            foreach ($vuln in $byCve.Values) {
+                if ($counts.ContainsKey($vuln.Severity)) { $counts[$vuln.Severity]++ }
+                if (& $isExploit $vuln) { $exploitable++ }
+                $fix = & $fixOf $vuln
+                if ($fix.Key -like 'kb|*') { if (-not $kbs.Contains($fix.Short)) { $kbs.Add($fix.Short) } }
+                elseif (-not $apps.Contains($fix.Short)) { $apps.Add($fix.Short) }
+            }
+            $avRow = $Def.Av[$id]
+            $avText = ''
+            if ($avRow) {
+                $mode = switch ("$($avRow.avMode)") { '0' { 'Active' } '1' { 'Passive' } '4' { 'EDR block' } default { "mode $($avRow.avMode)" } }
+                $upToDate = @("$($avRow.avIsSignatureUpToDate)", "$($avRow.avIsEngineUpToDate)") -notcontains 'False'
+                $avText = if ($upToDate) { "$mode - OK" } else { "$mode - $(T 'def.avOld')" }
+            }
+            $alertList = @($Def.Alerts[$id])
+            $configList = @($Def.Config[$id] | Where-Object { $_ })
+            $notes = [System.Collections.Generic.List[string]]::new()
+            if ($lastSeen -and $lastSeen -lt $now.AddDays(-$days)) { $notes.Add((T 'def.notSeen' ([int]($now - $lastSeen).TotalDays))) }
+            if ($machine.healthStatus -and "$($machine.healthStatus)" -ne 'Active') { $notes.Add((T 'def.sensor' $machine.healthStatus)) }
+            if ($script:HS_EosOs -contains "$($machine.osPlatform)") { $notes.Add((T 'def.osEos' $machine.osPlatform)) }
+            if (@($users | Where-Object { $_.Account -like "$(T 'def.byNamePrefix')*" }).Count) { $notes.Add((T 'def.byNameNote')) }
+            $admins = @($users | Where-Object { $_.Admin }).Count
+            if ($admins) { $notes.Add((T 'def.domainAdmin' $admins)) }
+            foreach ($alert in @($alertList | Where-Object { $_ } | Select-Object -First 3)) { $notes.Add("Alert $($alert.Severity): $($alert.Title)") }
+
+            $devices[$id] = [pscustomobject]@{
+                Id = $id; Name = $short; Users = $users; Main = $main; LastSeen = $lastSeen; Vulns = $byCve; Reason = $reason
+                Accounts = if ($users.Count) { (@($users | Where-Object { -not $_.Row } | ForEach-Object { $_.Account } | Select-Object -Unique) -join ', ') } else { (@(@($Def.Logons[$id]) | Where-Object { $_ } | ForEach-Object { "$($_.accountDomain)\$($_.accountName) ($($_.logonTypes); $((ConvertTo-LocalDate $_.lastSeen)))" }) -join ', ') }
+                Props = [ordered]@{
+                    OS = ("$($machine.osPlatform) $($machine.version)").Trim(); OsBuild = "$($machine.osBuild)"; LastSeen = $lastSeen
+                    Sensor = "$($machine.healthStatus)"; Risk = "$($machine.riskScore)"; Exposure = "$($machine.exposureLevel)"; Antivirus = $avText
+                    Alerts = [double]@($alertList | Where-Object { $_ }).Count
+                    Vuln_Critical = [double]$counts.Critical; Vuln_High = [double]$counts.High; Vuln_Medium = [double]$counts.Medium; Vuln_Low = [double]$counts.Low
+                    Exploitable = [double]$exploitable; MissingKB = ($kbs -join ', '); AppsToUpdate = ($apps -join '; ')
+                    EOL_Software = (@($Def.Eol[$id] | Where-Object { $_ } | Select-Object -Unique) -join '; '); ConfigIssues = [double]$configList.Count
+                    Notes = ($notes -join '; ')
+                }
+            }
+        }
+
+        # SECURITY: one row per licensed user and device
+        $securityRows = [System.Collections.Generic.List[object]]::new()
+        $byUser = @{}
+        $deviceList = @($devices.Values)
+        foreach ($row in @($inScope | Sort-Object Group, LastName, FirstName, Username)) {
+            $mine = @(foreach ($device in $deviceList) {
+                    $me = @($device.Users | Where-Object { $_.Row -eq $row } | Sort-Object Last -Descending)[0]
+                    if ($me) { [pscustomobject]@{ Device = $device; Last = $me.Last; IsMain = ($device.Main -and $device.Main.Row -eq $row) } }
+                })
+            $mine = @($mine | Sort-Object @{ Expression = { $_.IsMain }; Descending = $true }, @{ Expression = { $_.Device.LastSeen }; Descending = $true })
+            $byUser[(& $keyOf $row)] = [pscustomobject]@{
+                Devices = @($mine | ForEach-Object { $_.Device.Id })
+                HighRisk = [bool]@($mine | Where-Object { $_.Device.Props.Risk -eq 'High' }).Count
+                Critical = [int](@($mine | ForEach-Object { $_.Device.Props.Vuln_Critical }) | Measure-Object -Sum).Sum
+                Exploit = [int](@($mine | ForEach-Object { $_.Device.Props.Exploitable }) | Measure-Object -Sum).Sum
+                Stale = [bool]@($mine | Where-Object { $_.Device.LastSeen -and $_.Device.LastSeen -lt $now.AddDays(-$days) }).Count
+                Names = @($mine | ForEach-Object { $_.Device.Name })
+            }
+            $base = [ordered]@{
+                Group = $row.Group; Username = $row.Username; DisplayName = ("$($row.FirstName) $($row.LastName)").Trim(); UPN = $row.UPN
+                Status = $row.Status; Licenses = $row.Licenses
+            }
+            $copyBase = { $copy = [ordered]@{}; foreach ($k in $base.Keys) { $copy[$k] = $base[$k] }; $copy }
+            if (-not $mine.Count) {
+                $line = & $copyBase
+                $line.Device = ''; $line.UserRole = ''; $line.DeviceLastLogon = $null; $line.DeviceUsers = $null
+                foreach ($prop in 'OS', 'OsBuild', 'LastSeen', 'Sensor', 'Risk', 'Exposure', 'Antivirus', 'Alerts', 'Vuln_Critical', 'Vuln_High', 'Vuln_Medium', 'Vuln_Low', 'Exploitable', 'MissingKB', 'AppsToUpdate', 'EOL_Software', 'ConfigIssues') { $line[$prop] = $null }
+                $line.Notes = T 'def.noDevice' $days
+                $securityRows.Add([pscustomobject]$line)
+                continue
+            }
+            foreach ($item in $mine) {
+                $line = & $copyBase
+                $line.Device = $item.Device.Name
+                $line.UserRole = if ($item.IsMain) { T 'val.main' } else { T 'val.other' }
+                $line.DeviceLastLogon = $item.Last
+                $line.DeviceUsers = [double]@($item.Device.Users).Count
+                foreach ($prop in $item.Device.Props.Keys) { $line[$prop] = $item.Device.Props[$prop] }
+                $securityRows.Add([pscustomobject]$line)
+            }
+        }
+
+        # devices that belong to the report: used by a licensed user (or with no user, if asked)
+        $reported = @($deviceList | Where-Object { @($_.Users | Where-Object { $_.Row }).Count })
+        $ownerOf = { param($device) $owner = @($device.Users | Where-Object { $_.Row } | Sort-Object Last -Descending)[0]; if ($owner) { $owner.Row } else { $null } }
+
+        # VULNERABILITIES: detail per device and CVE, from DefenderMinSeverity up
+        $vulnRows = [System.Collections.Generic.List[object]]::new()
+        foreach ($device in $reported) {
+            $owner = & $ownerOf $device
+            foreach ($vuln in $device.Vulns.Values) {
+                if ([int]$script:HS_SevRank["$($vuln.Severity)"] -lt $minRank) { continue }
+                $fix = & $fixOf $vuln
+                $vulnRows.Add([pscustomobject][ordered]@{
+                        Device = $device.Name; Username = $owner.Username; UPN = $owner.UPN; CVE = $vuln.Cve; Severity = $vuln.Severity
+                        CVSS = if ($null -ne $vuln.Cvss -and "$($vuln.Cvss)" -ne '') { [double]$vuln.Cvss } else { $null }
+                        Exploit = $exploitText["$($vuln.Exploit)"]; Software = (Format-HSSoftware $vuln.Vendor $vuln.Software); Version = $vuln.Version
+                        Fix = $fix.Text; FirstSeen = $vuln.FirstSeen
+                        _r = [int]$script:HS_SevRank["$($vuln.Severity)"]; _e = [int][bool]$exploitText["$($vuln.Exploit)"]
+                    })
+            }
+        }
+        $vulnRows = @($vulnRows | Sort-Object @{ Expression = '_e'; Descending = $true }, @{ Expression = '_r'; Descending = $true }, @{ Expression = 'CVSS'; Descending = $true }, Device, CVE | Select-Object * -ExcludeProperty _r, _e)
+
+        # SECURITY_FIXES: what to install / change, with the devices it fixes
+        $fixes = @{}
+        $addFix = {
+            param([string]$Key, [string]$Type, [string]$Text, [string]$DeviceName, [string]$Cve, [int]$Rank, [bool]$Exploit)
+            if (-not $fixes.ContainsKey($Key)) { $fixes[$Key] = @{ Type = $Type; Fix = $Text; Devices = @{}; Cves = @{}; Rank = 0; Exploit = $false } }
+            $entry = $fixes[$Key]
+            $entry.Devices[$DeviceName] = $true
+            if ($Cve) { $entry.Cves[$Cve] = $true }
+            if ($Rank -gt $entry.Rank) { $entry.Rank = $Rank }
+            if ($Exploit) { $entry.Exploit = $true }
+        }
+        foreach ($device in $reported) {
+            foreach ($vuln in $device.Vulns.Values) {
+                $fix = & $fixOf $vuln
+                & $addFix $fix.Key $fix.Type $fix.Text $device.Name $vuln.Cve ([int]$script:HS_SevRank["$($vuln.Severity)"]) (& $isExploit $vuln)
+            }
+            foreach ($label in @($Def.Eol[$device.Id] | Where-Object { $_ } | Select-Object -Unique)) { & $addFix "eol|$label" (T 'def.typeEol') (T 'def.fixEol' $label) $device.Name '' 3 $false }
+            foreach ($cfgItem in @($Def.Config[$device.Id] | Where-Object { $_ })) { & $addFix "cfg|$($cfgItem.Name)" (T 'def.typeConfig') $cfgItem.Name $device.Name '' $(if ($cfgItem.Impact -ge 8) { 2 } else { 1 }) $false }
+        }
+        $rankName = @{ 4 = 'Critical'; 3 = 'High'; 2 = 'Medium'; 1 = 'Low'; 0 = '' }
+        $fixRows = @($fixes.Values | Sort-Object @{ Expression = { $_.Exploit }; Descending = $true }, @{ Expression = { $_.Rank }; Descending = $true }, @{ Expression = { $_.Devices.Count }; Descending = $true } | ForEach-Object {
+                $names = @($_.Devices.Keys | Sort-Object)
+                [pscustomobject][ordered]@{
+                    Type = $_.Type; Fix = $_.Fix; Devices = [double]$names.Count; CVEs = if ($_.Cves.Count) { [double]$_.Cves.Count } else { $null }
+                    MaxSeverity = if ($_.Type -eq (T 'def.typeConfig') -or $_.Type -eq (T 'def.typeEol')) { '' } else { $rankName[$_.Rank] }
+                    Exploit = if ($_.Exploit) { $yes } else { '' }
+                    DeviceList = (@($names | Select-Object -First 40) -join ', ') + $(if ($names.Count -gt 40) { ", ... (+$($names.Count - 40))" } else { '' })
+                }
+            })
+
+        # DEVICES_UNASSIGNED: onboarded devices not linked to a user with a Defender license, with the reason - only with DefenderUnassignedDevices
+        $noUserRows = @(foreach ($device in @($deviceList | Where-Object { $_.Reason } | Sort-Object Name)) {
+                $line = [ordered]@{ Device = $device.Name; Reason = $device.Reason; Accounts = $device.Accounts }
+                foreach ($prop in $device.Props.Keys) { $line[$prop] = $device.Props[$prop] }
+                [pscustomobject]$line
+            })
+
+        if ($byNameCount) { Write-HSLog (T 'log.defByName' $byNameCount) }
+        Write-HSLog (T 'log.defMap' @($Def.Machines.Count, $stats.Licensed, $stats.OthersOnly, $stats.Unknown, $(if ($unknownNames.Count) { " ($($unknownNames -join ', '))" } else { '' }), $stats.NoLogon))
+        Write-HSLog (T 'log.defDone' @($inScope.Count, $reported.Count, @($byUser.Values | Where-Object { -not $_.Devices.Count }).Count, ([math]::Round($timer.Elapsed.TotalSeconds) + $Def.Seconds)))
+        [pscustomobject]@{
+            Rows = @($securityRows); Vulns = $vulnRows; Fixes = $fixRows; NoUser = $noUserRows; ByUser = $byUser
+            Info = T 'def.sources' @($(if ($null -ne $Def.Exposure) { [math]::Round([double]$Def.Exposure) } else { '-' }), $(if ($null -ne $Def.ConfigScore) { [math]::Round([double]$Def.ConfigScore) } else { '-' }))
+        }
+    }
+
     # --------------------------------------------------------------------------- data collection
     function Get-HSData {
         <#
@@ -2020,6 +2730,7 @@ $Core = {
         }
         if ($Src.Exch -and -not $Parts.Exch) { $Skipped += 'Exchange on-prem' }
         if ($Src.AD -and $Src.M365 -and -not $Parts.Sync) { $Skipped += 'Sync' }
+        if ($Src.M365 -and $Cfg.Defender -and -not $Parts.Defender) { $Skipped += 'Defender' }
         if ($Skipped.Count) { Write-HSLog (T 'log.partial' @($PartialLabel, ($Skipped -join ', '))) }
         $LocOk = ((-not $Src.Exch) -or $Parts.Exch) -and ((-not $Src.M365) -or $Parts.Reports)   # mailbox location is reliable
         $script:HS_Warnings = [System.Collections.Generic.List[string]]::new()
@@ -2104,6 +2815,13 @@ $Core = {
         }
         $SyncInfo = @{}
 
+        # ================================================= MICROSOFT DEFENDER (devices of the users with a Defender license)
+        $Def = $null
+        if ($Src.M365 -and $Cfg.Defender -and $Parts.Defender) {
+            try { $Def = Get-HSDefender -Cfg $Cfg }
+            catch { Write-HSLog (T 'warn.defFailed' $_.Exception.Message) 'WARN' }
+        }
+
         # ================================================= USER ROWS
         $GrpOther = if ($Cfg.UnmappedGroup) { $Cfg.UnmappedGroup } else { T 'grp.other' }
         $GrpCloud = if ($Cfg.CloudOnlyGroup) { $Cfg.CloudOnlyGroup } else { T 'grp.cloud' }
@@ -2140,8 +2858,8 @@ $Core = {
 
             $ou = ''
             if ($Ad -and $Ad.CanonicalName) {
-                $parts = @($Ad.CanonicalName -split '/')
-                $ou = if ($parts.Count -gt 2) { (@($NetBIOS) + $parts[1..($parts.Count - 2)]) -join '\' } else { $NetBIOS }
+                $cnParts = @($Ad.CanonicalName -split '/')
+                $ou = if ($cnParts.Count -gt 2) { (@($NetBIOS) + $cnParts[1..($cnParts.Count - 2)]) -join '\' } else { $NetBIOS }
             }
 
             # licenses
@@ -2236,11 +2954,11 @@ $Core = {
                 foreach ($rule in $Cfg.GroupRules) { if ($ad.DistinguishedName -like "*$($rule.Match)*") { return $rule.Group } }
                 return $GrpOther
             }
-            $parts = @("$($ad.CanonicalName)" -split '/')
+            $cnParts = @("$($ad.CanonicalName)" -split '/')
             switch ($Cfg.GroupBy) {
-                'ParentOU' { if ($parts.Count -gt 2) { return $parts[$parts.Count - 2].ToUpper() } else { return $GrpOther } }
+                'ParentOU' { if ($cnParts.Count -gt 2) { return $cnParts[$cnParts.Count - 2].ToUpper() } else { return $GrpOther } }
                 'None' { return (T 'grp.all') }
-                default { if ($parts.Count -gt 2) { return $parts[1].ToUpper() } else { return $GrpOther } }
+                default { if ($cnParts.Count -gt 2) { return $cnParts[1].ToUpper() } else { return $GrpOther } }
             }
         }
 
@@ -2275,6 +2993,13 @@ $Core = {
         }
         $All = @($Groups.Values | ForEach-Object { $_ })
         Write-HSLog (T 'log.rows' @($All.Count, $Groups.Count))
+
+        $Security = $null
+        if ($Def) {
+            try { $Security = ConvertTo-HSSecurityData -Cfg $Cfg -Def $Def -Rows $All -Skus $skus -EntraByUpn $EntraByUpn -NetBIOS $NetBIOS }
+            catch { Write-HSLog (T 'warn.defFailed' "$($_.Exception.Message) $($_.InvocationInfo.PositionMessage)") 'WARN' }
+        }
+        $secOf = { param($row) if ($Security) { $Security.ByUser["$($row.Username)|$($row.UPN)"] } else { $null } }
 
         # ================================================= OVERVIEW
         $sumGB = { param($rows, $prop) $total = 0.0; foreach ($row in $rows) { if ($row.$prop) { $total += [double]$row.$prop } }; [math]::Round($total / 1024, 2) }
@@ -2329,6 +3054,16 @@ $Core = {
         if ($Src.AD) { & $addMetric 'inactiveAD' (T 'm.inactiveAD' $Cfg.InactiveDays) { param($rows) @($rows | Where-Object { $_.Status -eq $Labels.Enabled -and ($AdOrigins -contains $_.Origin) -and (-not $_.AD_LastLogon -or $_.AD_LastLogon -lt $InactiveCut) }).Count } }
         if ($Src.M365) { & $addMetric 'inactive365' (T 'm.inactive365' $Cfg.InactiveDays) { param($rows) @($rows | Where-Object { $_.Status -eq $Labels.Enabled -and (& $isLic $_) -and (-not $_.M365_LastSignIn -or $_.M365_LastSignIn -lt $InactiveCut) }).Count } }
         if ($Src.AD) { & $addMetric 'pwdOld' (T 'm.pwdOld' $Cfg.PasswordAgeDays) { param($rows) @($rows | Where-Object { $_.Status -eq $Labels.Enabled -and $_.PasswordLastSet -and $_.PasswordLastSet -lt $PwdCut }).Count } }
+        if ($Security) {
+            & $addMetric 'secDefender' (T 'm.sec.defender') $null -Section
+            & $addMetric 'defUsers' (T 'm.defUsers') { param($rows) @($rows | Where-Object { & $secOf $_ }).Count }
+            & $addMetric 'defNoDevice' (T 'm.defNoDevice') { param($rows) @($rows | Where-Object { $sec = & $secOf $_; $sec -and -not $sec.Devices.Count }).Count }
+            & $addMetric 'defDevices' (T 'm.defDevices') { param($rows) $ids = @{}; foreach ($row in $rows) { $sec = & $secOf $row; if ($sec) { foreach ($id in $sec.Devices) { $ids[$id] = $true } } }; $ids.Count }
+            & $addMetric 'defHighRisk' (T 'm.defHighRisk') { param($rows) @($rows | Where-Object { $sec = & $secOf $_; $sec -and $sec.HighRisk }).Count }
+            & $addMetric 'defCritical' (T 'm.defCritical') { param($rows) @($rows | Where-Object { $sec = & $secOf $_; $sec -and $sec.Critical }).Count }
+            & $addMetric 'defExploit' (T 'm.defExploit') { param($rows) @($rows | Where-Object { $sec = & $secOf $_; $sec -and $sec.Exploit }).Count }
+            & $addMetric 'defStale' (T 'm.defStale' ([math]::Max(1, [int]$Cfg.DefenderDays))) { param($rows) @($rows | Where-Object { $sec = & $secOf $_; $sec -and $sec.Stale }).Count }
+        }
 
         $colMetric = T 'col.metric'; $colTotal = T 'col.total'
         $Totals = @{}
@@ -2359,6 +3094,9 @@ $Core = {
             if ($userRow.Status -eq $Labels.Enabled -and ($AdOrigins -contains $userRow.Origin) -and (-not $userRow.AD_LastLogon -or $userRow.AD_LastLogon -lt $InactiveCut)) { & $addAttention (T 'att.c5' $Cfg.InactiveDays) $userRow (& $lastOrNever $userRow.AD_LastLogon) }
             if ($Src.M365 -and $Src.AD -and $userRow.Origin -eq $Labels.ADOnly -and $userRow.Status -eq $Labels.Enabled) { & $addAttention (T 'att.c6') $userRow $userRow.OU }
             if ($userRow.SyncIssues) { & $addAttention (T 'att.c7') $userRow $userRow.SyncIssues }
+            $sec = & $secOf $userRow
+            if ($sec -and ($sec.Critical -or $sec.Exploit)) { & $addAttention (T 'att.c8') $userRow (T 'att.vulns' @($sec.Critical, $sec.Exploit, ($sec.Names -join ', '))) (-($sec.Exploit * 1000 + $sec.Critical)) }
+            if ($sec -and $userRow.Status -eq $Labels.Enabled -and -not $sec.Devices.Count) { & $addAttention (T 'att.c9') $userRow '' }
         }
         $Attn = @($Attn | Sort-Object Category, _k, Username | Select-Object * -ExcludeProperty _k)
 
@@ -2394,6 +3132,12 @@ $Core = {
             $Tables[(T 'tab.licenses')] = $TabLic
         }
         if ($Sync -and $Sync.Rows.Count) { $Tables[(T 'tab.sync')] = $Sync.Rows }
+        if ($Security) {
+            if ($Security.Rows.Count) { $Tables[(T 'tab.security')] = $Security.Rows }
+            if ($Security.Vulns.Count) { $Tables[(T 'tab.vulns')] = $Security.Vulns }
+            if ($Security.Fixes.Count) { $Tables[(T 'tab.fixes')] = $Security.Fixes }
+            if ($Security.NoUser.Count) { $Tables[(T 'tab.devNoUser')] = $Security.NoUser }
+        }
         if ($Attn.Count) { $Tables[(T 'tab.attention')] = & $strip $Attn }
         $hist = Join-Path (Get-HSOutputFolder $Cfg) 'history.csv'
         if (Test-Path $hist) { $Tables[(T 'tab.history')] = @(Import-Csv -Path $hist -Delimiter ';' -Encoding UTF8) }
@@ -2412,7 +3156,7 @@ $Core = {
             SourceFlags  = $Src
             Totals       = $Totals
             Warnings     = @($script:HS_Warnings | Select-Object -Unique)
-            Sources      = (@($(if ($Src.AD) { "AD $($Cfg.DomainFqdn)" }), $(if ($Src.Exch) { "Exchange $($Cfg.ExchangeServer)" }), $(if ($Src.M365) { "Microsoft 365 $((Get-MgContext).TenantId)" })) | Where-Object { $_ }) -join ' | '
+            Sources      = (@($(if ($Src.AD) { "AD $($Cfg.DomainFqdn)" }), $(if ($Src.Exch) { "Exchange $($Cfg.ExchangeServer)" }), $(if ($Src.M365) { "Microsoft 365 $((Get-MgContext).TenantId)" }), $(if ($Security) { $Security.Info })) | Where-Object { $_ }) -join ' | '
         }
     }
 
@@ -2655,12 +3399,14 @@ $Core = {
             Optional collectors needed by the export columns (dynamic load). No columns = FULL: everything.
             AD, the Entra user list and the licenses are always read: they make the rows.
             Mfa = MFA registration report, MfaPerUser = legacy per-user state (one call per user),
-            Reports = Exchange Online / OneDrive usage, Exch = Exchange on-premises mailboxes, Sync = AD <-> Entra check.
+            Reports = Exchange Online / OneDrive usage, Exch = Exchange on-premises mailboxes, Sync = AD <-> Entra check,
+            Defender = Microsoft Defender tabs (with Cfg.Defender).
         #>
         param([string[]]$Columns)
         $cols = @($Columns | Where-Object { $_ })
-        if (-not $cols.Count) { return @{ Mfa = $true; MfaPerUser = $true; Reports = $true; Exch = $true; Sync = $true } }
-        $need = @{ Mfa = $false; MfaPerUser = $false; Reports = $false; Exch = $false; Sync = $false }
+        if (-not $cols.Count) { return @{ Mfa = $true; MfaPerUser = $true; Reports = $true; Exch = $true; Sync = $true; Defender = $true } }
+        # Defender fills its own tabs, never user columns: only the FULL load reads it
+        $need = @{ Mfa = $false; MfaPerUser = $false; Reports = $false; Exch = $false; Sync = $false; Defender = $false }
         foreach ($col in @(Resolve-HSExportColumns -Columns $cols -Available $script:HS_UserColumns)) {
             switch ($col) {
                 { $_ -in 'MFA_Status', 'MFA_DefaultMethod', 'MFA_Methods', 'Notes' } { $need.Mfa = $true }
@@ -2756,8 +3502,8 @@ $Core = {
     }
 
     # --------------------------------------------------------------------------- import
-    $script:HS_DateProps = 'AD_LastLogon', 'M365_LastSignIn', 'PasswordLastSet', 'LastLogon', 'LastActivity', 'Created', 'LastSync'
-    $script:HS_NumberProps = '_MB$|_GB$|^(Items|Files|ActiveFiles|Purchased|Assigned|Available|Suspended|Warning|Users|Enabled|OnPrem|On365|MFA_Percent|LicensedWithoutMFA)$'
+    $script:HS_DateProps = 'AD_LastLogon', 'M365_LastSignIn', 'PasswordLastSet', 'LastLogon', 'LastActivity', 'Created', 'LastSync', 'LastSeen', 'DeviceLastLogon', 'FirstSeen'
+    $script:HS_NumberProps = '_MB$|_GB$|^(Items|Files|ActiveFiles|Purchased|Assigned|Available|Suspended|Warning|Users|Enabled|OnPrem|On365|MFA_Percent|LicensedWithoutMFA|Alerts|Vuln_Critical|Vuln_High|Vuln_Medium|Vuln_Low|Exploitable|ConfigIssues|DeviceUsers|Devices|CVEs|CVSS)$'
 
     function Resolve-HSHeader {
         <#
@@ -2827,7 +3573,7 @@ $Core = {
         $tabNames = @{}
         foreach ($lang in $script:HS_Str.Keys) { foreach ($key in $script:HS_Str[$lang].Keys) { if ($key -like 'tab.*') { $tabNames[(Get-HSSheetName $script:HS_Str[$lang][$key])] = $key } } }
         # CSV files carry no order: same order as the report (group tabs between USERS and the mailbox tabs)
-        $tabOrder = @{ 'tab.overview' = 0; 'tab.users' = 1; 'tab.mbxOnPrem' = 3; 'tab.mbx365' = 4; 'tab.onedrive' = 5; 'tab.mfa' = 6; 'tab.licenses' = 7; 'tab.sync' = 8; 'tab.attention' = 9; 'tab.history' = 10 }
+        $tabOrder = @{ 'tab.overview' = 0; 'tab.users' = 1; 'tab.mbxOnPrem' = 3; 'tab.mbx365' = 4; 'tab.onedrive' = 5; 'tab.mfa' = 6; 'tab.licenses' = 7; 'tab.sync' = 8; 'tab.security' = 8.1; 'tab.vulns' = 8.2; 'tab.fixes' = 8.3; 'tab.devNoUser' = 8.4; 'tab.attention' = 9; 'tab.history' = 10 }
         $rankOf = { param($baseName) $tabKey = $tabNames[($baseName -replace '_\d{4}-\d{2}-\d{2}$', '')]; if ($tabKey -and $tabOrder.ContainsKey($tabKey)) { $tabOrder[$tabKey] } else { 2 } }
 
         if ((Test-Path -LiteralPath $Path -PathType Container) -or $Path -like '*.csv') {
@@ -3181,6 +3927,7 @@ $xamlText = @'
             <Button x:Name="btnSignOut" Content="{{btn.signout}}" ToolTip="{{tip.signout}}"/>
             <Ellipse x:Name="led365" Width="12" Height="12" Fill="#B0B0B0" Margin="8,0,4,0"/>
             <TextBlock x:Name="lbl365" Text="{{st.notconnected}}" Foreground="#666" FontWeight="Normal" MinWidth="140"/>
+            <CheckBox x:Name="chkDefender" Content="{{chk.defender}}" ToolTip="{{tip.defender}}" Margin="8,0,0,0" VerticalAlignment="Center"/>
           </StackPanel>
         </GroupBox>
         <GroupBox x:Name="gbCred" Header="{{gb.cred}}">
@@ -3442,7 +4189,7 @@ $CoreText = $Core.ToString()
 $script:ADCred = $null; $script:ExCred = $null; $script:Data = $null; $script:Job = $null; $script:AfterInstall = $null
 
 function Set-Busy([bool]$busy, [string]$text) {
-    foreach ($control in 'btn365', 'btnSignOut', 'btnExch', 'btnAD', 'btnLoad', 'cmbGroupBy', 'rbCloud', 'rbFullHybrid', 'rbHybrid', 'rbOnPrem', 'rbAD', 'miUpdates') { $ui[$control].IsEnabled = -not $busy }
+    foreach ($control in 'btn365', 'btnSignOut', 'btnExch', 'btnAD', 'btnLoad', 'cmbGroupBy', 'rbCloud', 'rbFullHybrid', 'rbHybrid', 'rbOnPrem', 'rbAD', 'miUpdates', 'chkDefender') { $ui[$control].IsEnabled = -not $busy }
     $ui.btnStop.IsEnabled = $busy
     foreach ($control in 'btnXlsx', 'btnCsvAll', 'btnTab') { $ui[$control].IsEnabled = (-not $busy) -and ($null -ne $script:Data) }
     $ui.prg.IsIndeterminate = $busy
@@ -3563,9 +4310,12 @@ function Show-HSTables {
         $grid.ClipboardCopyMode = 'IncludeHeader'
         $grid.Add_AutoGeneratingColumn({
                 param($source, $evtArgs)
-                $hdr = New-Object System.Windows.Controls.TextBlock   # TextBlock: no access-key handling of underscores
-                $hdr.Text = $evtArgs.PropertyName
-                $evtArgs.Column.Header = $hdr
+                # string header (copied by Ctrl+C with the right text) shown through a TextBlock template: no access-key handling of underscores
+                if (-not $script:HS_HeaderTemplate) {
+                    $script:HS_HeaderTemplate = [System.Windows.Markup.XamlReader]::Parse('<DataTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"><TextBlock Text="{Binding}"/></DataTemplate>')
+                }
+                $evtArgs.Column.Header = $evtArgs.PropertyName
+                $evtArgs.Column.HeaderTemplate = $script:HS_HeaderTemplate
                 if ($evtArgs.PropertyType -eq [datetime]) { $evtArgs.Column.Binding.StringFormat = 'yyyy-MM-dd HH:mm' }
                 elseif ($evtArgs.PropertyType -eq [double]) {
                     $evtArgs.Column.Binding.StringFormat = if ($evtArgs.PropertyName -match '_MB$|_GB$|\(GB\)') { 'N2' } else { '#,##0.##' }
@@ -3633,7 +4383,13 @@ $script:CardXaml = @'
           <StackPanel x:Name="pnlInfo" Margin="14,2,14,14"/>
         </ScrollViewer>
       </Border>
-      <Border Grid.Column="2" Background="White" BorderBrush="#DDE3EA" BorderThickness="1" Padding="12,10">
+      <Grid Grid.Column="2">
+      <Grid.RowDefinitions>
+        <RowDefinition Height="*"/>
+        <RowDefinition x:Name="rowDefSplit" Height="0"/>
+        <RowDefinition x:Name="rowDef" Height="0"/>
+      </Grid.RowDefinitions>
+      <Border Background="White" BorderBrush="#DDE3EA" BorderThickness="1" Padding="12,10">
         <DockPanel>
           <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
             <Button x:Name="btnReload" Content="{{card.reload}}" DockPanel.Dock="Right" Padding="12,3" Margin="8,0,0,0" Background="White" BorderBrush="#B8C2D0" Cursor="Hand"/>
@@ -3646,11 +4402,67 @@ $script:CardXaml = @'
                     CanUserAddRows="False" AlternatingRowBackground="#F5F8FC" HorizontalGridLinesBrush="#E6EAF0" ClipboardCopyMode="IncludeHeader"/>
         </DockPanel>
       </Border>
+      <GridSplitter Grid.Row="1" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Background="Transparent" ResizeDirection="Rows" ResizeBehavior="PreviousAndNext" Cursor="SizeNS"/>
+      <Border x:Name="pnlDef" Grid.Row="2" Background="White" BorderBrush="#DDE3EA" BorderThickness="1" Padding="12,10" Visibility="Collapsed">
+        <DockPanel>
+          <TextBlock DockPanel.Dock="Top" Text="{{card.defTitle}}" FontSize="14" FontWeight="SemiBold" Foreground="#0E2A47"/>
+          <TextBlock x:Name="lblDef" DockPanel.Dock="Top" Foreground="#555" TextWrapping="Wrap" Margin="0,4,0,6"/>
+          <DataGrid x:Name="gridDef" IsReadOnly="True" AutoGenerateColumns="True" HeadersVisibility="Column" GridLinesVisibility="Horizontal"
+                    CanUserAddRows="False" AlternatingRowBackground="#F5F8FC" HorizontalGridLinesBrush="#E6EAF0" ClipboardCopyMode="IncludeHeader"/>
+        </DockPanel>
+      </Border>
+      </Grid>
     </Grid>
   </DockPanel>
 </Window>
 '@
 $script:CardTarget = $null
+
+function Show-HSCardDefender($Card, $DefRows) {
+    <#
+    .SYNOPSIS
+        User card, lower right panel (only users with a PC in Defender): one line per PC with its state, and one row per
+        thing to fix - KB, software update, software out of support, weak configuration - with severity and exploit.
+    #>
+    $win = $Card.Window
+    $fixRows = if ($script:Data.Tables.Contains((T 'tab.fixes'))) { @($script:Data.Tables[(T 'tab.fixes')]) } else { @() }
+    $rank = @{ Critical = 4; High = 3; Medium = 2; Low = 1 }
+    $num = { param($v) if ($v -is [double]) { '{0:0}' -f $v } else { "$v" } }
+    $items = [System.Collections.Generic.List[object]]::new()
+    $summary = [System.Collections.Generic.List[string]]::new()
+    foreach ($defRow in $DefRows) {
+        $dev = "$($defRow.Device)"
+        $summary.Add(('{0} - {1} - {2}: {3} - {4}: {5} - Vuln {6}/{7}/{8}/{9} - {10}: {11} - {12}: {13}' -f $dev, $defRow.OS,
+                (Get-HSHeader 'Risk'), $defRow.Risk, (Get-HSHeader 'Exposure'), $defRow.Exposure,
+                (& $num $defRow.Vuln_Critical), (& $num $defRow.Vuln_High), (& $num $defRow.Vuln_Medium), (& $num $defRow.Vuln_Low),
+                (Get-HSHeader 'Exploitable'), (& $num $defRow.Exploitable), (Get-HSHeader 'LastSeen'), (Format-HSCardValue $defRow.LastSeen)))
+        $onDevice = @($fixRows | Where-Object { @("$($_.DeviceList)" -split ', ') -contains $dev })
+        $add = {
+            param([string]$Type, [string]$Fix, [string]$Severity, [string]$Exploit)
+            $items.Add([pscustomobject]@{ Device = $dev; Type = $Type; Fix = $Fix; MaxSeverity = $Severity; Exploit = $Exploit; Order = ([int]$rank[$Severity] + $(if ($Exploit) { 10 } else { 0 })) })
+        }
+        foreach ($kb in @("$($defRow.MissingKB)" -split ', ' | Where-Object { $_ })) {
+            $match = @($onDevice | Where-Object { "$($_.Fix)" -like "*$kb*" })[0]
+            & $add (T 'def.typeKb') $(if ($match) { "$($match.Fix)" } else { $kb }) "$($match.MaxSeverity)" "$($match.Exploit)"
+        }
+        foreach ($app in @("$($defRow.AppsToUpdate)" -split '; ' | Where-Object { $_ })) {
+            $match = @($onDevice | Where-Object { "$($_.Fix)" -eq $app })[0]
+            & $add $(if ($match) { "$($match.Type)" } else { T 'def.typeApp' }) $app "$($match.MaxSeverity)" "$($match.Exploit)"
+        }
+        foreach ($eol in @("$($defRow.EOL_Software)" -split '; ' | Where-Object { $_ })) { & $add (T 'def.typeEol') (T 'def.fixEol' $eol) '' '' }
+        foreach ($cfgFix in @($onDevice | Where-Object { "$($_.Type)" -eq (T 'def.typeConfig') })) { & $add "$($cfgFix.Type)" "$($cfgFix.Fix)" '' '' }
+    }
+    $table = New-Object System.Data.DataTable
+    $props = 'Device', 'Type', 'Fix', 'MaxSeverity', 'Exploit'
+    foreach ($prop in $props) { [void]$table.Columns.Add((Get-HSHeader $prop)) }
+    foreach ($item in @($items | Sort-Object @{ Expression = 'Order'; Descending = $true }, Device)) { [void]$table.Rows.Add([object[]]@($props | ForEach-Object { "$($item.$_)" })) }
+    $Card.DefTable = $table
+    $win.FindName('lblDef').Text = $summary -join "`n"
+    $win.FindName('gridDef').ItemsSource = $table.DefaultView
+    $win.FindName('pnlDef').Visibility = 'Visible'
+    $win.FindName('rowDefSplit').Height = New-Object System.Windows.GridLength 8
+    $win.FindName('rowDef').Height = New-Object System.Windows.GridLength 1.2, ([System.Windows.GridUnitType]::Star)
+}
 
 function Format-HSCardValue($Value) {
     if ($null -eq $Value -or $Value -is [DBNull]) { return '' }
@@ -3763,7 +4575,7 @@ function Show-HSUserCard($RowView) {
     $win = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $cardXml))
     $card = @{
         Window = $win; Info = $win.FindName('pnlInfo'); Grid = $win.FindName('gridGrp'); Status = $win.FindName('lblGrp')
-        Filter = $win.FindName('txtGrpFilter'); Text = New-Object System.Text.StringBuilder; Table = $null
+        Filter = $win.FindName('txtGrpFilter'); Text = New-Object System.Text.StringBuilder; Table = $null; DefTable = $null
         Sam = if ($src.AD -and $user.OU) { "$($user.Username)" } else { '' }
         Upn = if ($src.M365 -and $user.UPN) { "$($user.UPN)" } else { '' }
     }
@@ -3826,6 +4638,20 @@ function Show-HSUserCard($RowView) {
                 'Admin' = $(if ($mfaRow) { $mfaRow.Admin })
             })
     }
+    if ($script:Data.Tables.Contains((T 'tab.security'))) {
+        $defRows = @($script:Data.Tables[(T 'tab.security')] | Where-Object { $_.Device -and (($user.UPN -and $_.UPN -eq $user.UPN) -or (-not $user.UPN -and $_.Username -eq $user.Username)) })
+        foreach ($defRow in $defRows) {
+            $pairs = [ordered]@{}
+            foreach ($prop in 'UserRole', 'DeviceLastLogon', 'OS', 'OsBuild', 'LastSeen', 'Sensor', 'Risk', 'Exposure', 'Antivirus', 'Alerts', 'Vuln_Critical', 'Vuln_High', 'Vuln_Medium', 'Vuln_Low', 'Exploitable', 'ConfigIssues', 'Notes') {
+                $value = $defRow.$prop
+                if ($value -is [double] -and $value -eq [math]::Floor($value)) { $value = '{0:0}' -f $value }
+                if ($prop -eq 'Notes') { $value = "$value" -replace '; ', "`n" }
+                $pairs[(& $h $prop)] = $value
+            }
+            Add-HSCardSection $card (T 'card.sec.defender' $defRow.Device) $pairs
+        }
+        if ($defRows.Count) { Show-HSCardDefender $card $defRows }
+    }
     if ($syncInfo -or $syncRows.Count) {
         Add-HSCardSection $card (T 'card.sec.sync') ([ordered]@{
                 (& $h 'SyncIssues') = $user.SyncIssues
@@ -3846,6 +4672,10 @@ function Show-HSUserCard($RowView) {
             if ($c.Table -and $c.Table.Rows.Count) {
                 $text += "`r`n" + (T 'card.groups') + "`r`n"
                 foreach ($groupRow in $c.Table.DefaultView) { $text += '  ' + (@($groupRow.Row.ItemArray | ForEach-Object { "$_" }) -join ' | ') + "`r`n" }
+            }
+            if ($c.DefTable -and $c.DefTable.Rows.Count) {
+                $text += "`r`n" + (T 'card.defTitle') + "`r`n"
+                foreach ($defLine in $c.DefTable.Rows) { $text += '  ' + (@($defLine.ItemArray | ForEach-Object { "$_" }) -join ' | ') + "`r`n" }
             }
             try { [System.Windows.Clipboard]::SetText($text) } catch { }
         })
@@ -4291,6 +5121,8 @@ $ui.cmbExport.Add_SelectionChanged({
         Update-HSExportLabel
     })
 $ui.btnExpCols.Add_Click({ Show-HSExportDialog | Out-Null })
+$ui.chkDefender.IsChecked = [bool]$cfg.Defender
+$ui.chkDefender.Add_Click({ $cfg.Defender = [bool]$ui.chkDefender.IsChecked; try { Save-HSConfig $cfg $ConfigPath } catch { } })
 $ui.chkExpFast.IsChecked = [bool]$cfg.ExportFastLoad
 $ui.chkExpFast.Add_Click({ $cfg.ExportFastLoad = [bool]$ui.chkExpFast.IsChecked; try { Save-HSConfig $cfg $ConfigPath } catch { } })
 # the listed columns follow the infrastructure mode (until data is loaded)

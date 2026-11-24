@@ -85,5 +85,15 @@
     ]
   },
   "AutoExportPreset": "Full",
-  "ExportFastLoad": true
+  "ExportFastLoad": true,
+  "Defender": false,
+  "DefenderLicensePlans": [
+    "MDE_SMB",
+    "MDE_LITE",
+    "WINDEFATP"
+  ],
+  "DefenderDays": 30,
+  "DefenderMinSeverity": "High",
+  "DefenderUnassignedDevices": false,
+  "DefenderMatchByName": true
 }
