@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.8.1 - 2026-11-26
+- Fixed (since 1.5.0): opening a saved report where a group has the name of a tab in the other language (e.g. a group **USERS** in an Italian report) replaced the whole user list with that group: the USERS tab showed only its users. The report language is now detected from the sheet names
+- Double-click lists of saved reports now use the whole user list (they were empty for every group but the one with that name)
+
 ## 1.8.0 - 2026-11-26
 - **Double-click details on every tab**: a number in OVERVIEW opens the list of the users behind it (group column or TOTAL; e.g. *MFA per-user enforced*, a license, inactive users, Defender), a license in TENANT_LICENSES lists who has it, a fix in SECURITY_FIXES lists the users of the PCs it fixes, and any other row (HISTORY, DEVICES_UNASSIGNED, ...) opens in a window with all its fields. The user lists have search, column filters, *Copy* and double-click for the user card. **Saved reports** (also made by someone else, in either language): the lists are recomputed when the report is opened, from its USERS and SECURITY tabs with the same rules and the report's date; a number stays without list only if the report lacks the columns it needs (e.g. a preset export)
 - **Column filters** in every grid: click the ▾ next to a column name to choose the values to show (search, select all, blanks), Excel-style; a blue ▼ marks the filtered columns, the filters add up with the search box and the row count follows them

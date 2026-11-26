@@ -195,7 +195,7 @@ param(
     [string]$ConfigPath
 )
 
-$HS_Version = '1.8.0'
+$HS_Version = '1.8.1'
 $HS_Author = 'Thonno'
 $HS_Repo = 'Thonno/hybridscope'
 $HS_Links = @{
@@ -499,7 +499,7 @@ $Core = {
             'det.none'          = 'No users for this item.'
             'det.noDetail'      = 'No list of users for this report (it has no USERS tab).'
             'warn.detailsImport' = 'Double-click lists not rebuilt: {0}'
-            'log.detailsImport' = 'Double-click lists rebuilt: {0} users, {1} overview rows'
+            'log.detailsImport' = 'Double-click lists rebuilt: {0} users, {1} overview rows (total column {2}, {3} groups)'
             'card.reload'       = 'Reload'
             'card.search'       = 'Search:'
             'card.groups'       = 'Groups and roles'
@@ -951,7 +951,7 @@ $Core = {
             'det.none'          = 'Nessun utente per questa voce.'
             'det.noDetail'      = "Nessun elenco di utenti per questo report (manca il tab UTENTI)."
             'warn.detailsImport' = 'Elenchi del doppio clic non ricostruiti: {0}'
-            'log.detailsImport' = 'Elenchi del doppio clic ricostruiti: {0} utenti, {1} righe della panoramica'
+            'log.detailsImport' = 'Elenchi del doppio clic ricostruiti: {0} utenti, {1} righe della panoramica (colonna totale {2}, {3} gruppi)'
             'card.reload'       = 'Ricarica'
             'card.search'       = 'Cerca:'
             'card.groups'       = 'Gruppi e ruoli'
@@ -3631,7 +3631,11 @@ $Core = {
 
         # tab names of either language -> the current one (OVERVIEW / PANORAMICA, USERS / UTENTI...)
         $tabNames = @{}
-        foreach ($lang in $script:HS_Str.Keys) { foreach ($key in $script:HS_Str[$lang].Keys) { if ($key -like 'tab.*') { $tabNames[(Get-HSSheetName $script:HS_Str[$lang][$key])] = $key } } }
+        $tabNamesByLang = @{}
+        foreach ($lang in $script:HS_Str.Keys) {
+            $tabNamesByLang[$lang] = @{}
+            foreach ($key in $script:HS_Str[$lang].Keys) { if ($key -like 'tab.*') { $sheetName = Get-HSSheetName $script:HS_Str[$lang][$key]; $tabNames[$sheetName] = $key; $tabNamesByLang[$lang][$sheetName] = $key } }
+        }
         # CSV files carry no order: same order as the report (group tabs between USERS and the mailbox tabs)
         $tabOrder = @{ 'tab.overview' = 0; 'tab.users' = 1; 'tab.mbxOnPrem' = 3; 'tab.mbx365' = 4; 'tab.onedrive' = 5; 'tab.mfa' = 6; 'tab.licenses' = 7; 'tab.sync' = 8; 'tab.security' = 8.1; 'tab.vulns' = 8.2; 'tab.fixes' = 8.3; 'tab.devNoUser' = 8.4; 'tab.attention' = 9; 'tab.history' = 10 }
         $rankOf = { param($baseName) $tabKey = $tabNames[($baseName -replace '_\d{4}-\d{2}-\d{2}$', '')]; if ($tabKey -and $tabOrder.ContainsKey($tabKey)) { $tabOrder[$tabKey] } else { 2 } }
@@ -3663,6 +3667,15 @@ $Core = {
 
         $notePrefixes = @(foreach ($lang in $script:HS_Str.Keys) { foreach ($key in 'xl.generated', 'xl.legend', 'xl.warning') { ($script:HS_Str[$lang][$key] -split '\{0\}')[0] } }) | Where-Object { $_ } | Select-Object -Unique
         $warningPrefixes = @(foreach ($lang in $script:HS_Str.Keys) { ($script:HS_Str[$lang]['xl.warning'] -split '\{0\}')[0] }) | Select-Object -Unique
+
+        # language of the report = the one whose tab names match most sheets: only its names are tabs,
+        # so a group called USERS in an Italian report (or UTENTI in an English one) stays a group
+        $bestLang = $null; $bestHits = 0
+        foreach ($lang in $tabNamesByLang.Keys) {
+            $hits = @($sheets | Where-Object { $tabNamesByLang[$lang].ContainsKey("$($_.Name)") }).Count
+            if ($hits -gt $bestHits -or ($hits -eq $bestHits -and $lang -eq $script:HS_Lang)) { $bestLang = $lang; $bestHits = $hits }
+        }
+        if ($bestLang -and $bestHits) { $tabNames = $tabNamesByLang[$bestLang] }
 
         $tables = [ordered]@{}; $overviewName = ''; $metricFlags = @(); $generated = $null; $sources = ''
         $warnings = [System.Collections.Generic.List[string]]::new()
@@ -3810,12 +3823,17 @@ $Core = {
         $overview = @($Tables[$OverviewName])
         if ($overview.Count -and $Users.Count) {
             $cols = @($overview[0].PSObject.Properties.Name)
-            $result.TotalKey = $cols[-1]
-            $groupCols = @($cols | Select-Object -Skip 1 | Select-Object -SkipLast 1)
+            # TOTAL / TOTALE column by name: Excel can add empty columns after it (notes under the table)
+            $totalNames = @(& $any 'col.total')
+            $totalIndex = -1
+            for ($i = 1; $i -lt $cols.Count; $i++) { if ($totalNames -contains $cols[$i]) { $totalIndex = $i; break } }
+            if ($totalIndex -lt 0) { $totalIndex = $cols.Count - 1 }
+            $result.TotalKey = [string]$cols[$totalIndex]
+            $groupCols = @(if ($totalIndex -gt 1) { $cols[1..($totalIndex - 1)] })
             $section = ''
             foreach ($ovRow in $overview) {
                 $name = "$($ovRow.($cols[0]))"
-                if (-not @($cols | Select-Object -Skip 1 | Where-Object { $null -ne $ovRow.$_ -and "$($ovRow.$_)" -ne '' }).Count) { $section = $name; continue }
+                if (-not @(@($groupCols) + $result.TotalKey | Where-Object { $null -ne $ovRow.$_ -and "$($ovRow.$_)" -ne '' }).Count) { $section = $name; continue }
                 $rule = $null; $arg = $null
                 foreach ($pattern in $patterns) { if ($name -match $pattern.Regex) { $rule = $rules[$pattern.Id]; if ($pattern.HasArg) { $arg = $Matches[1] }; break } }
                 if (-not $rule -and $licSections -contains $section) { $licName = $name; $rule = { (@("$($_.Licenses)" -split ', ')) -contains $licName } }
@@ -3831,7 +3849,7 @@ $Core = {
                 foreach ($groupCol in $groupCols) { $byKey[$groupCol] = @($hits | Where-Object { "$($_.Group)" -eq $groupCol }) }
                 $result.Overview[$name] = $byKey
             }
-            Write-HSLog (T 'log.detailsImport' @($Users.Count, $result.Overview.Count))
+            Write-HSLog (T 'log.detailsImport' @($Users.Count, $result.Overview.Count, $result.TotalKey, $groupCols.Count))
         }
 
         # SECURITY_FIXES: users of the listed devices
