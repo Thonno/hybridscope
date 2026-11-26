@@ -223,10 +223,11 @@ L'API Defender consente 100 chiamate al minuto e HybridScope legge gli utenti ch
    - Opzioni: un foglio per gruppo, includi PANORAMICA, solo account abilitati.
    - **Leggi solo i dati necessari** (attiva di default): con un preset / Personalizzato vengono letti solo i dati che servono a quelle colonne, quindi il caricamento è molto più veloce; in alto compare **CARICAMENTO PARZIALE**.
 
-8. **Lavora sui dati**: la ricerca filtra il tab corrente, colonne ordinabili, copia con intestazioni, **doppio clic su un utente** in qualsiasi tab per la scheda utente, **Esporta XLSX...** / **Esporta CSV...**, oppure solo il tab corrente.
+8. **Lavora sui dati**: la ricerca filtra il tab corrente, colonne ordinabili, **filtri per colonna** (clic sul ▾ accanto al nome della colonna: spunta i valori da vedere, es. una sola *Categoria* in DA_ATTENZIONARE; un ▼ blu indica le colonne filtrate), copia con intestazioni, **doppio clic su un utente** in qualsiasi tab per la scheda utente, **Esporta XLSX...** / **Esporta CSV...**, oppure solo il tab corrente.
+   **Doppio clic sugli altri tab**: un numero in PANORAMICA (es. *MFA per-user enforced*, nella colonna di un gruppo o in TOTALE) o una licenza in LICENZE_TENANT apre l'elenco di quegli utenti; un intervento in INTERVENTI_SICUREZZA elenca gli utenti dei PC che sistema; ogni altra riga (STORICO, DISPOSITIVI_NON_ASSEGNATI, ...) si apre con tutti i suoi campi. Negli elenchi, doppio clic su un utente per la scheda utente.
 9. **In seguito**: **File > Apri report** (Ctrl+O) o trascina un `.xlsx` / una cartella CSV sulla finestra per sfogliare un report salvato senza collegarti, es. l'`HybridScope_LATEST.xlsx` giornaliero.
 
-Lingua: menu in alto a destra (serve un riavvio). **Aiuto > Cerca aggiornamenti** confronta con l'ultima release.
+Lingua: menu in alto a destra (serve un riavvio). All'avvio HybridScope controlla GitHub in background e chiede solo se c'è una versione più recente (`CheckUpdatesAtStartup`, predefinito `true`); **Aiuto > Cerca aggiornamenti** controlla su richiesta.
 
 ---
 
@@ -415,6 +416,7 @@ Creato al primo avvio; la maggior parte dei valori si imposta anche dalla finest
 | `ExportGroupSheets`, `ExportOverview`, `ExportEnabledOnly` | `false` | Un foglio per gruppo, includi PANORAMICA, solo account abilitati |
 | `ExportPresets` | `{}` | I tuoi preset, salvati dalla finestra di export |
 | `ExportFastLoad` | `true` | Con un preset / Personalizzato legge solo i dati che servono |
+| `CheckUpdatesAtStartup` | `true` | Controlla se c'è una nuova release all'apertura della GUI (silenzioso se offline o aggiornato) |
 | `AutoExportPreset` | `Full` | Contenuto del report di `-Auto` |
 | **Microsoft Defender** | | |
 | `Defender` | `false` | Legge Defender (casella **Defender**); solo con il contenuto FULL. Modifica `config.json` con HybridScope chiuso: la finestra salva la sua copia |
@@ -521,7 +523,7 @@ Get-ChildItem C:\HybridScope -Recurse | Unblock-File
 
 **Modifica qualcosa?** No. Tutte le chiamate sono in sola lettura. L'unica eccezione è l'installazione dei moduli PowerShell mancanti, e solo se accetti.
 
-**Dove vengono inviati i miei dati?** Da nessuna parte. HybridScope comunica solo con il tuo AD, il tuo server Exchange, Microsoft Graph e l'API di Defender. I report restano sul tuo disco. **Aiuto > Cerca aggiornamenti**, solo quando lo premi, legge il numero dell'ultima release dalle API pubbliche di GitHub.
+**Dove vengono inviati i miei dati?** Da nessuna parte. HybridScope comunica solo con il tuo AD, il tuo server Exchange, Microsoft Graph e l'API di Defender. I report restano sul tuo disco. Il controllo aggiornamenti (all'avvio della GUI, salvo `CheckUpdatesAtStartup` = `false`, e **Aiuto > Cerca aggiornamenti**) legge solo il numero dell'ultima release dalle API pubbliche di GitHub: non viene inviato nulla.
 
 **Serve Intune per i tab di sicurezza?** No. I PC devono essere registrati in Defender; HybridScope trova i loro utenti dagli accessi che Defender registra.
 

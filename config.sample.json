@@ -86,6 +86,7 @@
   },
   "AutoExportPreset": "Full",
   "ExportFastLoad": true,
+  "CheckUpdatesAtStartup": true,
   "Defender": false,
   "DefenderLicensePlans": [
     "MDE_SMB",

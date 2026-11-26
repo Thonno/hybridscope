@@ -195,7 +195,7 @@ param(
     [string]$ConfigPath
 )
 
-$HS_Version = '1.7.0'
+$HS_Version = '1.8.0'
 $HS_Author = 'Thonno'
 $HS_Repo = 'Thonno/hybridscope'
 $HS_Links = @{
@@ -489,6 +489,17 @@ $Core = {
             'about.close'       = 'Close'
             'status.by'         = 'by'
             'card.copy'         = 'Copy'
+            'flt.tip'           = 'Filter this column'
+            'flt.all'           = '(Select all)'
+            'flt.blank'         = '(Blanks)'
+            'flt.clear'         = 'Clear filter'
+            'flt.search'        = 'Search'
+            'det.users'         = '{0} users'
+            'det.hint'          = 'double-click a user for the user card'
+            'det.none'          = 'No users for this item.'
+            'det.noDetail'      = 'No list of users for this report (it has no USERS tab).'
+            'warn.detailsImport' = 'Double-click lists not rebuilt: {0}'
+            'log.detailsImport' = 'Double-click lists rebuilt: {0} users, {1} overview rows'
             'card.reload'       = 'Reload'
             'card.search'       = 'Search:'
             'card.groups'       = 'Groups and roles'
@@ -930,6 +941,17 @@ $Core = {
             'about.close'       = 'Chiudi'
             'status.by'         = 'di'
             'card.copy'         = 'Copia'
+            'flt.tip'           = 'Filtra questa colonna'
+            'flt.all'           = '(Seleziona tutto)'
+            'flt.blank'         = '(Vuote)'
+            'flt.clear'         = 'Togli filtro'
+            'flt.search'        = 'Cerca'
+            'det.users'         = '{0} utenti'
+            'det.hint'          = 'doppio clic su un utente per la scheda utente'
+            'det.none'          = 'Nessun utente per questa voce.'
+            'det.noDetail'      = "Nessun elenco di utenti per questo report (manca il tab UTENTI)."
+            'warn.detailsImport' = 'Elenchi del doppio clic non ricostruiti: {0}'
+            'log.detailsImport' = 'Elenchi del doppio clic ricostruiti: {0} utenti, {1} righe della panoramica'
             'card.reload'       = 'Ricarica'
             'card.search'       = 'Cerca:'
             'card.groups'       = 'Gruppi e ruoli'
@@ -1232,6 +1254,7 @@ $Core = {
             ExportPresets          = [ordered]@{}
             AutoExportPreset       = 'Full'
             ExportFastLoad         = $true
+            CheckUpdatesAtStartup  = $true
             Defender               = $false
             DefenderLicensePlans   = @('MDE_SMB', 'MDE_LITE', 'WINDEFATP')
             DefenderDays           = 30
@@ -2019,7 +2042,7 @@ $Core = {
     function Get-HSLatestRelease {
         <#
         .SYNOPSIS
-            Latest HybridScope release on GitHub (public API, no sign-in). Only called from Help > Check for updates.
+            Latest HybridScope release on GitHub (public API, no sign-in). Called from Help > Check for updates (the startup check uses its own copy).
         #>
         param([string]$Repo)
         [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
@@ -2695,6 +2718,20 @@ $Core = {
                 }
             })
 
+        # users behind each fix (double-click on SECURITY_FIXES)
+        $devByName = @{}
+        foreach ($device in $reported) { $devByName["$($device.Name)"] = $device }
+        $fixUsers = @{}
+        foreach ($fixEntry in $fixes.Values) {
+            $fixSeen = @{}
+            $fixUsers["$($fixEntry.Type)|$($fixEntry.Fix)"] = @(foreach ($devName in $fixEntry.Devices.Keys) {
+                    foreach ($link in @($devByName[$devName].Users | Where-Object { $_.Row })) {
+                        $linkKey = "$($link.Row.Username)|$($link.Row.UPN)"
+                        if (-not $fixSeen.ContainsKey($linkKey)) { $fixSeen[$linkKey] = $true; $link.Row }
+                    }
+                })
+        }
+
         # DEVICES_UNASSIGNED: onboarded devices not linked to a user with a Defender license, with the reason - only with DefenderUnassignedDevices
         $noUserRows = @(foreach ($device in @($deviceList | Where-Object { $_.Reason } | Sort-Object Name)) {
                 $line = [ordered]@{ Device = $device.Name; Reason = $device.Reason; Accounts = $device.Accounts }
@@ -2706,7 +2743,7 @@ $Core = {
         Write-HSLog (T 'log.defMap' @($Def.Machines.Count, $stats.Licensed, $stats.OthersOnly, $stats.Unknown, $(if ($unknownNames.Count) { " ($($unknownNames -join ', '))" } else { '' }), $stats.NoLogon))
         Write-HSLog (T 'log.defDone' @($inScope.Count, $reported.Count, @($byUser.Values | Where-Object { -not $_.Devices.Count }).Count, ([math]::Round($timer.Elapsed.TotalSeconds) + $Def.Seconds)))
         [pscustomobject]@{
-            Rows = @($securityRows); Vulns = $vulnRows; Fixes = $fixRows; NoUser = $noUserRows; ByUser = $byUser
+            Rows = @($securityRows); Vulns = $vulnRows; Fixes = $fixRows; NoUser = $noUserRows; ByUser = $byUser; FixUsers = $fixUsers
             Info = T 'def.sources' @($(if ($null -ne $Def.Exposure) { [math]::Round([double]$Def.Exposure) } else { '-' }), $(if ($null -ne $Def.ConfigScore) { [math]::Round([double]$Def.ConfigScore) } else { '-' }))
         }
     }
@@ -2872,6 +2909,7 @@ $Core = {
                         }) | Select-Object -Unique)
                 if ($names.Count) { $lic = $names -join ', ' }
             }
+            $rowSkus = if ($EntraUser -and $EntraUser.assignedLicenses) { @($EntraUser.assignedLicenses | ForEach-Object { $SkuMap["$($_.skuId)"] } | Where-Object { $_ } | Select-Object -Unique) } else { @() }
 
             # where the mailbox lives (Exchange on-prem and Graph decide; size is informational only)
             $inReport365 = [bool]($upn -and $Mbx365.ContainsKey($upn))
@@ -2920,7 +2958,7 @@ $Core = {
             if ($Src.M365 -and $Ad -and -not $EntraUser -and $enabled) { $notes.Add((T 'note.notSynced')) }
             if ($Ad -and $Ad.PasswordNeverExpires) { $notes.Add((T 'note.pwdNeverExpires')) }
 
-            [pscustomobject][ordered]@{
+            $newUserRow = [pscustomobject][ordered]@{
                 Group             = $Group
                 FirstName         = if ($Ad) { $Ad.GivenName } else { $EntraUser.givenName }
                 LastName          = if ($Ad) { $Ad.Surname } else { $EntraUser.surname }
@@ -2946,6 +2984,11 @@ $Core = {
                 SyncIssues        = $syncIssues
                 Notes             = $notes -join '; '
             }
+            foreach ($skuPart in $rowSkus) {
+                if (-not $SkuHolders.ContainsKey($skuPart)) { $SkuHolders[$skuPart] = [System.Collections.Generic.List[object]]::new() }
+                $SkuHolders[$skuPart].Add($newUserRow)
+            }
+            $newUserRow
         }
 
         $getGroup = {
@@ -2962,6 +3005,7 @@ $Core = {
             }
         }
 
+        $SkuHolders = @{}   # SKU -> users with that license (double-click on TENANT_LICENSES)
         $Groups = [ordered]@{}
         foreach ($rule in @($Cfg.GroupRules)) { if ($rule.Group -and -not $Groups.Contains($rule.Group)) { $Groups[$rule.Group] = [System.Collections.Generic.List[object]]::new() } }
         $seenEntra = @{}
@@ -3005,72 +3049,86 @@ $Core = {
         $sumGB = { param($rows, $prop) $total = 0.0; foreach ($row in $rows) { if ($row.$prop) { $total += [double]$row.$prop } }; [math]::Round($total / 1024, 2) }
         $isLic = { param($row) $row.Licenses -ne $Labels.None }
         $Metrics = [System.Collections.Generic.List[object]]::new()
-        $addMetric = { param($id, $name, $formula, [switch]$Section, [switch]$GB) $Metrics.Add([pscustomobject]@{ Id = $id; Name = $name; Formula = $formula; IsSection = [bool]$Section; IsGB = [bool]$GB }) }
+        # Filter: the users behind the number (double-click on the overview); without Formula the value is how many users match it
+        $addMetric = { param($id, $name, $formula, [switch]$Section, [switch]$GB, [scriptblock]$Filter) $Metrics.Add([pscustomobject]@{ Id = $id; Name = $name; Formula = $formula; Filter = $Filter; IsSection = [bool]$Section; IsGB = [bool]$GB }) }
         & $addMetric 'secUsers' (T 'm.sec.users') $null -Section
-        & $addMetric 'total' (T 'm.total') { param($rows) @($rows).Count }
-        & $addMetric 'enabled' (T 'm.enabled') { param($rows) @($rows | Where-Object { $_.Status -eq $Labels.Enabled }).Count }
-        & $addMetric 'disabled' (T 'm.disabled') { param($rows) @($rows | Where-Object { $_.Status -eq $Labels.Disabled }).Count }
+        & $addMetric 'total' (T 'm.total') $null -Filter { $true }
+        & $addMetric 'enabled' (T 'm.enabled') $null -Filter { $_.Status -eq $Labels.Enabled }
+        & $addMetric 'disabled' (T 'm.disabled') $null -Filter { $_.Status -eq $Labels.Disabled }
         if ($Src.AD -and $Src.M365) {
-            & $addMetric 'adOnly' (T 'm.adOnly') { param($rows) @($rows | Where-Object { $_.Origin -eq $Labels.ADOnly }).Count }
-            & $addMetric 'unlinked' (T 'm.unlinked') { param($rows) @($rows | Where-Object { $_.Origin -eq $Labels.Unlinked }).Count }
-            if ($Sync) { & $addMetric 'syncIssues' (T 'm.syncIssues') { param($rows) @($rows | Where-Object { $_.SyncIssues }).Count } }
-            & $addMetric 'cloudOnly' (T 'm.cloudOnly') { param($rows) @($rows | Where-Object { $_.Origin -eq $Labels.Cloud -or $_.Origin -eq $Labels.Guest }).Count }
+            & $addMetric 'adOnly' (T 'm.adOnly') $null -Filter { $_.Origin -eq $Labels.ADOnly }
+            & $addMetric 'unlinked' (T 'm.unlinked') $null -Filter { $_.Origin -eq $Labels.Unlinked }
+            if ($Sync) { & $addMetric 'syncIssues' (T 'm.syncIssues') $null -Filter { $_.SyncIssues } }
+            & $addMetric 'cloudOnly' (T 'm.cloudOnly') $null -Filter { $_.Origin -eq $Labels.Cloud -or $_.Origin -eq $Labels.Guest }
         }
         if (($Src.M365 -or $Src.Exch) -and $LocOk) {
             & $addMetric 'secLoc' (T 'm.sec.location') $null -Section
-            if ($Src.M365) { & $addMetric 'loc365' (T 'm.loc' '365') { param($rows) @($rows | Where-Object { $_.Location -eq '365' }).Count } }
-            if ($Src.Exch) { & $addMetric 'locOnPrem' (T 'm.loc' 'ON-PREM') { param($rows) @($rows | Where-Object { $_.Location -eq 'ON-PREM' }).Count } }
-            & $addMetric 'locNone' (T 'm.loc' 'NO MAILBOX') { param($rows) @($rows | Where-Object { $_.Location -eq 'NO MAILBOX' }).Count }
+            if ($Src.M365) { & $addMetric 'loc365' (T 'm.loc' '365') $null -Filter { $_.Location -eq '365' } }
+            if ($Src.Exch) { & $addMetric 'locOnPrem' (T 'm.loc' 'ON-PREM') $null -Filter { $_.Location -eq 'ON-PREM' } }
+            & $addMetric 'locNone' (T 'm.loc' 'NO MAILBOX') $null -Filter { $_.Location -eq 'NO MAILBOX' }
             & $addMetric 'secSpace' (T 'm.sec.space') $null -Section
-            if ($Src.Exch) { & $addMetric 'spaceOnPrem' (T 'm.spaceOnPrem') { param($rows) & $sumGB $rows 'MailboxOnPrem_MB' } -GB }
+            if ($Src.Exch) { & $addMetric 'spaceOnPrem' (T 'm.spaceOnPrem') { param($rows) & $sumGB $rows 'MailboxOnPrem_MB' } -GB -Filter { $_.MailboxOnPrem_MB } }
             if ($Src.M365) {
-                & $addMetric 'space365' (T 'm.space365') { param($rows) & $sumGB $rows 'Mailbox365_MB' } -GB
-                & $addMetric 'spaceOD' (T 'm.spaceOD') { param($rows) & $sumGB $rows 'OneDrive_MB' } -GB
+                & $addMetric 'space365' (T 'm.space365') { param($rows) & $sumGB $rows 'Mailbox365_MB' } -GB -Filter { $_.Mailbox365_MB }
+                & $addMetric 'spaceOD' (T 'm.spaceOD') { param($rows) & $sumGB $rows 'OneDrive_MB' } -GB -Filter { $_.OneDrive_MB }
             }
             if ($Src.Exch) {
-                & $addMetric 'avgOnPrem' (T 'm.avgOnPrem') { param($rows) $onPremRows = @($rows | Where-Object { $_.Location -eq 'ON-PREM' }); if ($onPremRows.Count) { [math]::Round((& $sumGB $onPremRows 'MailboxOnPrem_MB') / $onPremRows.Count, 2) } else { 0 } } -GB
-                & $addMetric 'maxOnPrem' (T 'm.maxOnPrem') { param($rows) $maxMB = 0.0; foreach ($row in $rows) { if ($row.MailboxOnPrem_MB -gt $maxMB) { $maxMB = [double]$row.MailboxOnPrem_MB } }; [math]::Round($maxMB / 1024, 2) } -GB
+                & $addMetric 'avgOnPrem' (T 'm.avgOnPrem') { param($rows) $onPremRows = @($rows | Where-Object { $_.Location -eq 'ON-PREM' }); if ($onPremRows.Count) { [math]::Round((& $sumGB $onPremRows 'MailboxOnPrem_MB') / $onPremRows.Count, 2) } else { 0 } } -GB -Filter { $_.Location -eq 'ON-PREM' }
+                & $addMetric 'maxOnPrem' (T 'm.maxOnPrem') { param($rows) $maxMB = 0.0; foreach ($row in $rows) { if ($row.MailboxOnPrem_MB -gt $maxMB) { $maxMB = [double]$row.MailboxOnPrem_MB } }; [math]::Round($maxMB / 1024, 2) } -GB -Filter { $_.Location -eq 'ON-PREM' }
             }
         }
         if ($Src.M365) {
         & $addMetric 'secLic' (T 'm.sec.lic') $null -Section
         $licNames = @($All | ForEach-Object { $_.Licenses -split ', ' } | Where-Object { $_ -and $_ -ne $Labels.None } | Sort-Object -Unique)
         foreach ($licName in $licNames) {
-            & $addMetric "lic:$licName" $licName ({ param($rows) @($rows | Where-Object { ($_.Licenses -split ', ') -contains $licName }).Count }.GetNewClosure())
+            & $addMetric "lic:$licName" $licName $null -Filter ({ ($_.Licenses -split ', ') -contains $licName }.GetNewClosure())
         }
-        & $addMetric 'noLic' (T 'm.noLic') { param($rows) @($rows | Where-Object { $_.Licenses -eq $Labels.None }).Count }
-        & $addMetric 'licDisabled' (T 'm.licDisabled') { param($rows) @($rows | Where-Object { $_.Status -eq $Labels.Disabled -and (& $isLic $_) }).Count }
+        & $addMetric 'noLic' (T 'm.noLic') $null -Filter { $_.Licenses -eq $Labels.None }
+        & $addMetric 'licDisabled' (T 'm.licDisabled') $null -Filter { $_.Status -eq $Labels.Disabled -and (& $isLic $_) }
         if ($Parts.Mfa) {
         & $addMetric 'secMfa' (T 'm.sec.mfa') $null -Section
-        & $addMetric 'mfaYes' (T 'm.mfaYes') { param($rows) @($rows | Where-Object { $_.MFA_Status -eq $Labels.MfaYes }).Count }
-        & $addMetric 'mfaNo' (T 'm.mfaNo') { param($rows) @($rows | Where-Object { $_.MFA_Status -eq $Labels.MfaNo }).Count }
-        & $addMetric 'mfaNotInEntra' (T 'm.mfaNotInEntra') { param($rows) @($rows | Where-Object { $_.MFA_Status -eq $Labels.MfaNotInEntra }).Count }
-        & $addMetric 'mfaPct' (T 'm.mfaPct') { param($rows) $inEntra = @($rows | Where-Object { $_.MFA_Status -ne $Labels.MfaNotInEntra }); if ($inEntra.Count) { [math]::Round(100 * @($inEntra | Where-Object { $_.MFA_Status -eq $Labels.MfaYes }).Count / $inEntra.Count, 1) } else { 0 } }
-        & $addMetric 'licNoMfa' (T 'm.licNoMfa') { param($rows) @($rows | Where-Object { $_.Status -eq $Labels.Enabled -and (& $isLic $_) -and $_.MFA_Status -eq $Labels.MfaNo }).Count }
-        if ($Parts.MfaPerUser) { & $addMetric 'perUserEnforced' (T 'm.perUserEnforced') { param($rows) @($rows | Where-Object { $_.MFA_PerUser -eq 'enforced' }).Count } }
+        & $addMetric 'mfaYes' (T 'm.mfaYes') $null -Filter { $_.MFA_Status -eq $Labels.MfaYes }
+        & $addMetric 'mfaNo' (T 'm.mfaNo') $null -Filter { $_.MFA_Status -eq $Labels.MfaNo }
+        & $addMetric 'mfaNotInEntra' (T 'm.mfaNotInEntra') $null -Filter { $_.MFA_Status -eq $Labels.MfaNotInEntra }
+        & $addMetric 'mfaPct' (T 'm.mfaPct') { param($rows) $inEntra = @($rows | Where-Object { $_.MFA_Status -ne $Labels.MfaNotInEntra }); if ($inEntra.Count) { [math]::Round(100 * @($inEntra | Where-Object { $_.MFA_Status -eq $Labels.MfaYes }).Count / $inEntra.Count, 1) } else { 0 } } -Filter { $_.MFA_Status -ne $Labels.MfaNotInEntra }
+        & $addMetric 'licNoMfa' (T 'm.licNoMfa') $null -Filter { $_.Status -eq $Labels.Enabled -and (& $isLic $_) -and $_.MFA_Status -eq $Labels.MfaNo }
+        if ($Parts.MfaPerUser) { & $addMetric 'perUserEnforced' (T 'm.perUserEnforced') $null -Filter { $_.MFA_PerUser -eq 'enforced' } }
         }   # end MFA metrics
         }   # end Microsoft 365 metrics
         & $addMetric 'secInactive' (T 'm.sec.inactive') $null -Section
-        if ($Src.AD) { & $addMetric 'inactiveAD' (T 'm.inactiveAD' $Cfg.InactiveDays) { param($rows) @($rows | Where-Object { $_.Status -eq $Labels.Enabled -and ($AdOrigins -contains $_.Origin) -and (-not $_.AD_LastLogon -or $_.AD_LastLogon -lt $InactiveCut) }).Count } }
-        if ($Src.M365) { & $addMetric 'inactive365' (T 'm.inactive365' $Cfg.InactiveDays) { param($rows) @($rows | Where-Object { $_.Status -eq $Labels.Enabled -and (& $isLic $_) -and (-not $_.M365_LastSignIn -or $_.M365_LastSignIn -lt $InactiveCut) }).Count } }
-        if ($Src.AD) { & $addMetric 'pwdOld' (T 'm.pwdOld' $Cfg.PasswordAgeDays) { param($rows) @($rows | Where-Object { $_.Status -eq $Labels.Enabled -and $_.PasswordLastSet -and $_.PasswordLastSet -lt $PwdCut }).Count } }
+        if ($Src.AD) { & $addMetric 'inactiveAD' (T 'm.inactiveAD' $Cfg.InactiveDays) $null -Filter { $_.Status -eq $Labels.Enabled -and ($AdOrigins -contains $_.Origin) -and (-not $_.AD_LastLogon -or $_.AD_LastLogon -lt $InactiveCut) } }
+        if ($Src.M365) { & $addMetric 'inactive365' (T 'm.inactive365' $Cfg.InactiveDays) $null -Filter { $_.Status -eq $Labels.Enabled -and (& $isLic $_) -and (-not $_.M365_LastSignIn -or $_.M365_LastSignIn -lt $InactiveCut) } }
+        if ($Src.AD) { & $addMetric 'pwdOld' (T 'm.pwdOld' $Cfg.PasswordAgeDays) $null -Filter { $_.Status -eq $Labels.Enabled -and $_.PasswordLastSet -and $_.PasswordLastSet -lt $PwdCut } }
         if ($Security) {
             & $addMetric 'secDefender' (T 'm.sec.defender') $null -Section
-            & $addMetric 'defUsers' (T 'm.defUsers') { param($rows) @($rows | Where-Object { & $secOf $_ }).Count }
-            & $addMetric 'defNoDevice' (T 'm.defNoDevice') { param($rows) @($rows | Where-Object { $sec = & $secOf $_; $sec -and -not $sec.Devices.Count }).Count }
-            & $addMetric 'defDevices' (T 'm.defDevices') { param($rows) $ids = @{}; foreach ($row in $rows) { $sec = & $secOf $row; if ($sec) { foreach ($id in $sec.Devices) { $ids[$id] = $true } } }; $ids.Count }
-            & $addMetric 'defHighRisk' (T 'm.defHighRisk') { param($rows) @($rows | Where-Object { $sec = & $secOf $_; $sec -and $sec.HighRisk }).Count }
-            & $addMetric 'defCritical' (T 'm.defCritical') { param($rows) @($rows | Where-Object { $sec = & $secOf $_; $sec -and $sec.Critical }).Count }
-            & $addMetric 'defExploit' (T 'm.defExploit') { param($rows) @($rows | Where-Object { $sec = & $secOf $_; $sec -and $sec.Exploit }).Count }
-            & $addMetric 'defStale' (T 'm.defStale' ([math]::Max(1, [int]$Cfg.DefenderDays))) { param($rows) @($rows | Where-Object { $sec = & $secOf $_; $sec -and $sec.Stale }).Count }
+            & $addMetric 'defUsers' (T 'm.defUsers') $null -Filter { & $secOf $_ }
+            & $addMetric 'defNoDevice' (T 'm.defNoDevice') $null -Filter { $sec = & $secOf $_; $sec -and -not $sec.Devices.Count }
+            & $addMetric 'defDevices' (T 'm.defDevices') { param($rows) $ids = @{}; foreach ($row in $rows) { $sec = & $secOf $row; if ($sec) { foreach ($id in $sec.Devices) { $ids[$id] = $true } } }; $ids.Count } -Filter { $sec = & $secOf $_; $sec -and $sec.Devices.Count }
+            & $addMetric 'defHighRisk' (T 'm.defHighRisk') $null -Filter { $sec = & $secOf $_; $sec -and $sec.HighRisk }
+            & $addMetric 'defCritical' (T 'm.defCritical') $null -Filter { $sec = & $secOf $_; $sec -and $sec.Critical }
+            & $addMetric 'defExploit' (T 'm.defExploit') $null -Filter { $sec = & $secOf $_; $sec -and $sec.Exploit }
+            & $addMetric 'defStale' (T 'm.defStale' ([math]::Max(1, [int]$Cfg.DefenderDays))) $null -Filter { $sec = & $secOf $_; $sec -and $sec.Stale }
         }
 
         $colMetric = T 'col.metric'; $colTotal = T 'col.total'
         $Totals = @{}
+        $OvDetail = @{}   # metric name -> @{ <group or total column> = users }
+        $evalMetric = {
+            param($evMetric, $evRows, $evDetail, $evKey)
+            if ($evMetric.IsSection) { return $null }
+            if ($evMetric.Filter) {
+                $evHits = @($evRows | Where-Object -FilterScript $evMetric.Filter)
+                $evDetail[$evKey] = $evHits
+                if (-not $evMetric.Formula) { return $evHits.Count }
+            }
+            & $evMetric.Formula $evRows
+        }
         $Overview = @(foreach ($metric in $Metrics) {
                 $line = [ordered]@{ $colMetric = $metric.Name }
-                foreach ($groupName in $Groups.Keys) { $line[$groupName] = if ($metric.IsSection) { $null } else { & $metric.Formula $Groups[$groupName] } }
-                $line[$colTotal] = if ($metric.IsSection) { $null } else { & $metric.Formula $All }
+                $metricDetail = @{}
+                foreach ($groupName in $Groups.Keys) { $line[$groupName] = & $evalMetric $metric $Groups[$groupName] $metricDetail $groupName }
+                $line[$colTotal] = & $evalMetric $metric $All $metricDetail $colTotal
+                if ($metricDetail.Count) { $OvDetail[$metric.Name] = $metricDetail }
                 if (-not $metric.IsSection) { $Totals[$metric.Id] = $line[$colTotal] }
                 [pscustomobject]$line
             })
@@ -3150,6 +3208,8 @@ $Core = {
             OverviewName = (T 'tab.overview')
             MetricFlags  = @($Metrics | ForEach-Object { [pscustomobject]@{ IsSection = $_.IsSection; IsGB = $_.IsGB } })
             Users        = $All          # unstripped rows and per-user extras, for the user card
+            Details      = @{ Overview = $OvDetail; TotalKey = $colTotal; Licenses = $SkuHolders; Fixes = $(if ($Security) { $Security.FixUsers } else { @{} }) }   # double-click lists
+            DropColumns  = @($drop)
             Partial      = if ($Skipped.Count) { if ($PartialLabel) { $PartialLabel } else { 'Custom' } } else { '' }
             Skipped      = @($Skipped)
             SyncInfo     = $SyncInfo
@@ -3660,12 +3720,17 @@ $Core = {
 
         if (-not $generated -and (Split-Path -Leaf $Path) -match '(\d{4}-\d{2}-\d{2})_(\d{2})(\d{2})') { $generated = [datetime]::ParseExact("$($Matches[1]) $($Matches[2]):$($Matches[3])", 'yyyy-MM-dd HH:mm', $null) }
         if (-not $generated) { $generated = (Get-Item -LiteralPath $Path).LastWriteTime }
+        # user lists of the double-click, recomputed from the saved tabs
+        $details = $null
+        try { $details = Get-HSImportDetails -Tables $tables -Users $users -OverviewName $overviewName -Generated $generated }
+        catch { Write-HSLog (T 'warn.detailsImport' $_.Exception.Message) 'WARN' }
 
         [pscustomobject]@{
             Generated    = $generated
             Tables       = $tables
             OverviewName = $overviewName
             MetricFlags  = $metricFlags
+            Details      = $details
             Totals       = @{ total = $users.Count }
             Warnings     = @($warnings)
             Sources      = $sources
@@ -3675,6 +3740,111 @@ $Core = {
             Imported     = $true
             ImportPath   = $Path
         }
+    }
+
+    function Get-HSImportDetails {
+        <#
+        .SYNOPSIS
+            Rebuilds the double-click user lists of a saved report (OVERVIEW numbers, SECURITY_FIXES) from its
+            USERS and SECURITY tabs, with the rules of Get-HSData. Works with reports in either language and made
+            on another PC: metric names and values are matched against every language; days come from the
+            metric name, dates are compared with the report date.
+        #>
+        param($Tables, [object[]]$Users, [string]$OverviewName, [datetime]$Generated)
+        $result = @{ Overview = @{}; Fixes = @{}; TotalKey = '' }
+        $langs = @($script:HS_Str.Keys)
+        $any = { param($key) @(foreach ($lang in $langs) { "$($script:HS_Str[$lang][$key])" }) | Where-Object { $_ } | Select-Object -Unique }
+        $L = @{}
+        foreach ($key in 'val.enabled', 'val.disabled', 'val.none', 'val.mfaYes', 'val.mfaNo', 'val.mfaNotInEntra', 'val.originSynced', 'val.originAD', 'val.originCloud', 'val.originGuest', 'val.originUnlinked') { $L[$key] = @(& $any $key) }
+        $adOrigins = @($L['val.originSynced'] + $L['val.originAD'] + $L['val.originUnlinked'])
+        $isLic = { param($row) "$($row.Licenses)" -and $L['val.none'] -notcontains "$($row.Licenses)" }
+        $enabled = { param($row) $L['val.enabled'] -contains "$($row.Status)" }
+        $num = { param($value) if ($null -eq $value -or "$value" -eq '') { 0 } else { try { [double]$value } catch { 0 } } }
+
+        # Defender per user, from the SECURITY tab (one row per user and device)
+        $sec = @{}
+        foreach ($secRow in @($Tables[(T 'tab.security')])) {
+            if (-not $secRow) { continue }
+            $secKey = "$($secRow.Username)|$($secRow.UPN)"
+            if (-not $sec.ContainsKey($secKey)) { $sec[$secKey] = @{ Devices = 0; HighRisk = $false; Critical = 0; Exploit = 0; Seen = [System.Collections.Generic.List[object]]::new(); Names = [System.Collections.Generic.List[string]]::new() } }
+            $entry = $sec[$secKey]
+            if ("$($secRow.Device)") {
+                $entry.Devices++; $entry.Names.Add("$($secRow.Device)")
+                if ("$($secRow.Risk)" -eq 'High') { $entry.HighRisk = $true }
+                $entry.Critical += & $num $secRow.Vuln_Critical; $entry.Exploit += & $num $secRow.Exploitable
+                if ($secRow.LastSeen -is [datetime]) { $entry.Seen.Add($secRow.LastSeen) }
+            }
+        }
+        $secOf = { param($row) $sec["$($row.Username)|$($row.UPN)"] }
+
+        # metric name (any language) -> rule; {0} = days or location
+        $rules = [ordered]@{
+            'm.total' = { $true }; 'm.enabled' = { & $enabled $_ }; 'm.disabled' = { $L['val.disabled'] -contains "$($_.Status)" }
+            'm.adOnly' = { $L['val.originAD'] -contains "$($_.Origin)" }; 'm.unlinked' = { $L['val.originUnlinked'] -contains "$($_.Origin)" }
+            'm.syncIssues' = { "$($_.SyncIssues)" -ne '' }; 'm.cloudOnly' = { ($L['val.originCloud'] + $L['val.originGuest']) -contains "$($_.Origin)" }
+            'm.spaceOnPrem' = { (& $num $_.MailboxOnPrem_MB) -gt 0 }; 'm.space365' = { (& $num $_.Mailbox365_MB) -gt 0 }; 'm.spaceOD' = { (& $num $_.OneDrive_MB) -gt 0 }
+            'm.avgOnPrem' = { "$($_.Location)" -eq 'ON-PREM' }; 'm.maxOnPrem' = { "$($_.Location)" -eq 'ON-PREM' }
+            'm.noLic' = { -not (& $isLic $_) }; 'm.licDisabled' = { $L['val.disabled'] -contains "$($_.Status)" -and (& $isLic $_) }
+            'm.mfaYes' = { $L['val.mfaYes'] -contains "$($_.MFA_Status)" }; 'm.mfaNo' = { $L['val.mfaNo'] -contains "$($_.MFA_Status)" }
+            'm.mfaNotInEntra' = { $L['val.mfaNotInEntra'] -contains "$($_.MFA_Status)" }; 'm.mfaPct' = { "$($_.MFA_Status)" -and $L['val.mfaNotInEntra'] -notcontains "$($_.MFA_Status)" }
+            'm.licNoMfa' = { (& $enabled $_) -and (& $isLic $_) -and $L['val.mfaNo'] -contains "$($_.MFA_Status)" }
+            'm.perUserEnforced' = { "$($_.MFA_PerUser)" -eq 'enforced' }
+            'm.defUsers' = { & $secOf $_ }; 'm.defNoDevice' = { $s = & $secOf $_; $s -and -not $s.Devices }; 'm.defDevices' = { $s = & $secOf $_; $s -and $s.Devices }
+            'm.defHighRisk' = { $s = & $secOf $_; $s -and $s.HighRisk }; 'm.defCritical' = { $s = & $secOf $_; $s -and $s.Critical }; 'm.defExploit' = { $s = & $secOf $_; $s -and $s.Exploit }
+            'm.loc' = { "$($_.Location)" -eq $arg }
+            'm.inactiveAD' = { (& $enabled $_) -and $adOrigins -contains "$($_.Origin)" -and (-not ($_.AD_LastLogon -is [datetime]) -or $_.AD_LastLogon -lt $cut) }
+            'm.inactive365' = { (& $enabled $_) -and (& $isLic $_) -and (-not ($_.M365_LastSignIn -is [datetime]) -or $_.M365_LastSignIn -lt $cut) }
+            'm.pwdOld' = { (& $enabled $_) -and $_.PasswordLastSet -is [datetime] -and $_.PasswordLastSet -lt $cut }
+            'm.defStale' = { $s = & $secOf $_; $s -and @($s.Seen | Where-Object { $_ -lt $cut }).Count }
+        }
+        $patterns = [System.Collections.Generic.List[object]]::new()
+        foreach ($id in $rules.Keys) {
+            foreach ($text in @(& $any $id)) {
+                $hasArg = $text -match '\{0\}'
+                $patterns.Add([pscustomobject]@{ Id = $id; HasArg = $hasArg; Regex = '^' + ([regex]::Escape($text) -replace '\\\{0}', '(.+?)') + '$' })
+            }
+        }
+        $patterns = @($patterns | Sort-Object HasArg)   # fixed names first ('Users {0}' would match others)
+        $licSections = @(& $any 'm.sec.lic')
+
+        $overview = @($Tables[$OverviewName])
+        if ($overview.Count -and $Users.Count) {
+            $cols = @($overview[0].PSObject.Properties.Name)
+            $result.TotalKey = $cols[-1]
+            $groupCols = @($cols | Select-Object -Skip 1 | Select-Object -SkipLast 1)
+            $section = ''
+            foreach ($ovRow in $overview) {
+                $name = "$($ovRow.($cols[0]))"
+                if (-not @($cols | Select-Object -Skip 1 | Where-Object { $null -ne $ovRow.$_ -and "$($ovRow.$_)" -ne '' }).Count) { $section = $name; continue }
+                $rule = $null; $arg = $null
+                foreach ($pattern in $patterns) { if ($name -match $pattern.Regex) { $rule = $rules[$pattern.Id]; if ($pattern.HasArg) { $arg = $Matches[1] }; break } }
+                if (-not $rule -and $licSections -contains $section) { $licName = $name; $rule = { (@("$($_.Licenses)" -split ', ')) -contains $licName } }
+                if (-not $rule) { continue }
+                # the report must have the columns the rule reads (a preset export may not)
+                $needed = @([regex]::Matches("$rule", '\$_\.(\w+)') | ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique)
+                if (@($needed | Where-Object { -not $Users[0].PSObject.Properties[$_] }).Count) { continue }
+                $cut = $Generated
+                if ($arg -match '^\d+$') { $cut = $Generated.AddDays(-[int]$arg) }
+                $hits = @($Users | Where-Object -FilterScript $rule)
+                $byKey = @{}
+                $byKey[[string]$result.TotalKey] = $hits
+                foreach ($groupCol in $groupCols) { $byKey[$groupCol] = @($hits | Where-Object { "$($_.Group)" -eq $groupCol }) }
+                $result.Overview[$name] = $byKey
+            }
+            Write-HSLog (T 'log.detailsImport' @($Users.Count, $result.Overview.Count))
+        }
+
+        # SECURITY_FIXES: users of the listed devices
+        $byDevice = @{}
+        foreach ($user in $Users) { $s = & $secOf $user; if ($s) { foreach ($devName in $s.Names) { if (-not $byDevice.ContainsKey($devName)) { $byDevice[$devName] = [System.Collections.Generic.List[object]]::new() }; $byDevice[$devName].Add($user) } } }
+        foreach ($fixRow in @($Tables[(T 'tab.fixes')])) {
+            if (-not $fixRow) { continue }
+            $seen = @{}
+            $result.Fixes["$($fixRow.Type)|$($fixRow.Fix)"] = @(foreach ($devName in @("$($fixRow.DeviceList)" -split ', ' | Where-Object { $_ -and $_ -notlike '...*' })) {
+                    foreach ($user in @($byDevice[$devName])) { if ($user) { $userKey = "$($user.Username)|$($user.UPN)"; if (-not $seen.ContainsKey($userKey)) { $seen[$userKey] = $true; $user } } }
+                })
+        }
+        $result
     }
 
     function ConvertTo-HSDataTable {
@@ -4244,6 +4414,7 @@ Start-HSJob -Title (T 'job.init') -Script ($CoreText + "`nWrite-HSLog (T 'log.re
         if ($missing -contains 'ActiveDirectory') { $msg += "`n`n" + (T 'msg.rsatNote') }
         if ((Show-Msg $msg (T 'title.modules') 'YesNo' 'Warning') -eq 'Yes') { Install-MissingModules $missing }
     }
+    Start-HSStartupUpdateCheck
 }
 
 $timer = New-Object System.Windows.Threading.DispatcherTimer
@@ -4275,15 +4446,28 @@ $timer.Add_Tick({
 $timer.Start()
 
 # ---------------------------------------------------------------- tabs
+function Get-HSColFilterExpr([System.Data.DataTable]$Table, [string]$Skip) {
+    # column filters (header ▾) of a table as DataView expressions, except the column Skip
+    $filters = $Table.ExtendedProperties['hsColFilter']
+    if (-not $filters) { return @() }
+    @(foreach ($colName in @($filters.Keys)) { if ($colName -ne $Skip -and $Table.Columns.Contains($colName)) { "($($filters[$colName].Expr))" } })
+}
+
 function Set-HSRowFilter([System.Data.DataTable]$Table, [string]$Text) {
-    # DataView filter: rows where any column contains Text
+    # DataView filter: rows where any column contains Text, AND the column filters
     $dv = $Table.DefaultView
     $Text = "$Text".Trim()
-    if (-not $Text) { $dv.RowFilter = ''; return }
-    $pattern = $Text.Replace("'", "''")
-    $pattern = [regex]::Replace($pattern, '[\[\]\*%]', [System.Text.RegularExpressions.MatchEvaluator] { param($match) "[$($match.Value)]" })
-    $parts = foreach ($column in $Table.Columns) { "CONVERT([$($column.ColumnName.Replace(']','\]'))], 'System.String') LIKE '%$pattern%'" }
-    try { $dv.RowFilter = ($parts -join ' OR ') } catch { }
+    $Table.ExtendedProperties['hsText'] = $Text
+    $all = @(Get-HSColFilterExpr $Table '')
+    if ($Text) {
+        $pattern = $Text.Replace("'", "''")
+        $pattern = [regex]::Replace($pattern, '[\[\]\*%]', [System.Text.RegularExpressions.MatchEvaluator] { param($match) "[$($match.Value)]" })
+        $parts = foreach ($column in $Table.Columns) { "CONVERT([$($column.ColumnName.Replace(']','\]'))], 'System.String') LIKE '%$pattern%'" }
+        $all = @("($($parts -join ' OR '))") + $all
+    }
+    try { $dv.RowFilter = ($all -join ' AND ') } catch { try { $dv.RowFilter = '' } catch { } }
+    $label = $Table.ExtendedProperties['hsLabel']
+    if ($label) { $label.Text = T 'lbl.rows' @($dv.Count, $Table.Rows.Count) }
 }
 
 function Set-HSFilter {
@@ -4293,38 +4477,207 @@ function Set-HSFilter {
     $ui.lblCount.Text = T 'lbl.rows' @($tab.Tag.DefaultView.Count, $tab.Tag.Rows.Count)
 }
 
+function Get-HSHeaderTemplate([switch]$Active) {
+    # column header: name + ▾ that opens the column filter (blue ▼ when the filter is on)
+    $key = if ($Active) { 'On' } else { 'Off' }
+    if (-not $script:HS_HeaderTemplates) { $script:HS_HeaderTemplates = @{} }
+    $cacheKey = "$key|$($script:HS_Lang)|$(T 'flt.tip')"
+    if (-not $script:HS_HeaderTemplates[$cacheKey]) {
+        $glyph = if ($Active) { 'Text="&#x25BC;" Foreground="#1A73E8" FontWeight="Bold"' } else { 'Text="&#x25BE;" Foreground="#8A97A8"' }
+        $tip = [System.Security.SecurityElement]::Escape((T 'flt.tip'))
+        $script:HS_HeaderTemplates[$cacheKey] = [System.Windows.Markup.XamlReader]::Parse(@"
+<DataTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"><DockPanel><TextBlock Tag="hsflt" $glyph DockPanel.Dock="Right" Margin="6,0,0,0" Padding="2,0" Cursor="Hand" Background="Transparent" ToolTip="$tip"/><TextBlock Text="{Binding}"/></DockPanel></DataTemplate>
+"@)
+    }
+    $script:HS_HeaderTemplates[$cacheKey]
+}
+
+function Show-HSColumnFilter($Grid, $Column, $Anchor) {
+    <#
+        Excel-like filter of one column: the values of the rows that pass the other filters, with checkboxes.
+        Saved in the DataTable (ExtendedProperties hsColFilter) and applied by Set-HSRowFilter.
+    #>
+    $dt = $Grid.ItemsSource.Table
+    $colName = "$($Column.Header)"
+    if (-not $dt -or -not $dt.Columns.Contains($colName)) { return }
+    $dc = $dt.Columns[$colName]
+    $filters = $dt.ExtendedProperties['hsColFilter']
+    if (-not $filters) { $filters = @{}; $dt.ExtendedProperties['hsColFilter'] = $filters }
+    $current = $filters[$colName]
+    $isDate = $dc.DataType -eq [datetime]; $isNum = $dc.DataType -eq [double]
+    $inv = [System.Globalization.CultureInfo]::InvariantCulture
+
+    # values of the rows visible with the other filters (and the text filter)
+    $view = New-Object System.Data.DataView $dt
+    $others = @(Get-HSColFilterExpr $dt $colName)
+    $text = "$($dt.ExtendedProperties['hsText'])"
+    if ($text) {
+        $pattern = [regex]::Replace($text.Replace("'", "''"), '[\[\]\*%]', [System.Text.RegularExpressions.MatchEvaluator] { param($match) "[$($match.Value)]" })
+        $others = @("($(@(foreach ($column in $dt.Columns) { "CONVERT([$($column.ColumnName.Replace(']','\]'))], 'System.String') LIKE '%$pattern%'" }) -join ' OR '))") + $others
+    }
+    try { $view.RowFilter = ($others -join ' AND ') } catch { }
+    $values = @{}
+    foreach ($drv in $view) {
+        $value = $drv.Row[$dc]
+        if ($value -is [DBNull] -or "$value" -eq '') { $k = ''; $sortKey = $null }
+        elseif ($isDate) { $minute = ([datetime]$value).Date.AddHours(([datetime]$value).Hour).AddMinutes(([datetime]$value).Minute); $k = $minute.ToString('yyyy-MM-dd HH:mm'); $sortKey = $minute }
+        elseif ($isNum) { $k = ([double]$value).ToString('R', $inv); $sortKey = [double]$value }
+        else { $k = "$value"; $sortKey = "$value" }
+        if (-not $values.ContainsKey($k)) { $values[$k] = [pscustomobject]@{ Key = $k; Sort = $sortKey; Label = $(if ($k -eq '') { T 'flt.blank' } elseif ($isNum) { ([double]$value).ToString('#,##0.##') } else { $k }) } }
+    }
+    # values hidden by the other filters but selected here stay selected
+    $items = @($values.Values | Where-Object { $_.Key -ne '' } | Sort-Object Sort) + @($values.Values | Where-Object { $_.Key -eq '' })
+
+    $xaml = @"
+<Border xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" Background="White" BorderBrush="#B8C2D0" BorderThickness="1" Padding="8" Width="300">
+  <Border.Effect><DropShadowEffect BlurRadius="8" ShadowDepth="2" Opacity="0.25"/></Border.Effect>
+  <DockPanel>
+    <TextBlock DockPanel.Dock="Top" Text="$([System.Security.SecurityElement]::Escape($colName))" FontWeight="SemiBold" Margin="0,0,0,6"/>
+    <TextBox Name="txtSearch" DockPanel.Dock="Top" Margin="0,0,0,6" Padding="3,2" ToolTip="$([System.Security.SecurityElement]::Escape((T 'flt.search')))"/>
+    <CheckBox Name="chkAll" DockPanel.Dock="Top" Content="$([System.Security.SecurityElement]::Escape((T 'flt.all')))" Margin="3,0,0,4" FontWeight="SemiBold" IsThreeState="False"/>
+    <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
+      <Button Name="btnClear" Content="$([System.Security.SecurityElement]::Escape((T 'flt.clear')))" Padding="10,3" Margin="0,0,6,0" Background="White" BorderBrush="#B8C2D0"/>
+      <Button Name="btnOk" Content="OK" Padding="18,3" Background="#1A4A7A" Foreground="White" BorderBrush="#1A4A7A"/>
+    </StackPanel>
+    <ListBox Name="lstValues" MaxHeight="330" MinHeight="60" BorderBrush="#E0E4EA"/>
+  </DockPanel>
+</Border>
+"@
+    $border = [System.Windows.Markup.XamlReader]::Parse($xaml)
+    $popup = New-Object System.Windows.Controls.Primitives.Popup
+    $popup.Child = $border
+    $popup.PlacementTarget = $Anchor
+    $popup.Placement = 'Bottom'
+    $popup.StaysOpen = $false
+    $popup.AllowsTransparency = $true
+    $state = @{ Popup = $popup; Table = $dt; Column = $Column; ColName = $colName; DataType = $dc.DataType; Boxes = [System.Collections.Generic.List[object]]::new()
+        List = $border.FindName('lstValues'); All = $border.FindName('chkAll'); Search = $border.FindName('txtSearch') }
+    foreach ($item in $items) {
+        $box = New-Object System.Windows.Controls.CheckBox
+        $box.Content = $item.Label; $box.Tag = $item.Key; $box.Margin = '2,1'
+        $box.IsChecked = if ($current) { $current.Chosen.Contains($item.Key) } else { $true }
+        $state.Boxes.Add($box); [void]$state.List.Items.Add($box)
+    }
+    $state.All.IsChecked = -not @($state.Boxes | Where-Object { -not $_.IsChecked }).Count
+    $border.Tag = $state
+
+    $state.All.Add_Click({
+            param($source, $evtArgs)
+            $st = $source.Tag
+            foreach ($box in $st.Boxes) { if ($box.Visibility -eq 'Visible') { $box.IsChecked = [bool]$source.IsChecked } }
+        })
+    $state.All.Tag = $state
+    $state.Search.Tag = $state
+    $state.Search.Add_TextChanged({
+            param($source, $evtArgs)
+            $st = $source.Tag; $needle = $source.Text.Trim()
+            foreach ($box in $st.Boxes) { $box.Visibility = if (-not $needle -or "$($box.Content)" -like "*$needle*") { 'Visible' } else { 'Collapsed' } }
+            if ($needle) { foreach ($box in $st.Boxes) { $box.IsChecked = $box.Visibility -eq 'Visible' } }
+            $st.All.IsChecked = -not @($st.Boxes | Where-Object { $_.Visibility -eq 'Visible' -and -not $_.IsChecked }).Count
+        })
+    $apply = {
+        param($st, [bool]$Clear)
+        $filters = $st.Table.ExtendedProperties['hsColFilter']
+        $chosen = @($st.Boxes | Where-Object { $_.Visibility -eq 'Visible' -and $_.IsChecked } | ForEach-Object { "$($_.Tag)" })
+        $everything = -not $Clear -and $chosen.Count -eq $st.Boxes.Count
+        if ($Clear -or $everything) { [void]$filters.Remove($st.ColName) }
+        else {
+            $col = "[$($st.ColName.Replace(']','\]'))]"
+            $inv = [System.Globalization.CultureInfo]::InvariantCulture
+            $keys = @($chosen | Where-Object { $_ -ne '' })
+            $terms = [System.Collections.Generic.List[string]]::new()
+            if ($st.DataType -eq [datetime]) {
+                foreach ($k in $keys) {
+                    $from = [datetime]::ParseExact($k, 'yyyy-MM-dd HH:mm', $inv)
+                    $terms.Add("($col >= #$($from.ToString('MM/dd/yyyy HH:mm:ss', $inv))# AND $col < #$($from.AddMinutes(1).ToString('MM/dd/yyyy HH:mm:ss', $inv))#)")
+                }
+                if ($chosen -contains '') { $terms.Add("$col IS NULL") }
+            }
+            elseif ($st.DataType -eq [double]) {
+                if ($keys.Count) { $terms.Add("$col IN ($($keys -join ', '))") }
+                if ($chosen -contains '') { $terms.Add("$col IS NULL") }
+            }
+            else {
+                $list = @($keys | ForEach-Object { "'" + $_.Replace("'", "''") + "'" })
+                if ($chosen -contains '') { $list += "''" }
+                if ($list.Count) { $terms.Add("ISNULL($col, '') IN ($($list -join ', '))") }
+            }
+            $expr = if ($terms.Count) { $terms -join ' OR ' } else { '1 = 0' }
+            $filters[$st.ColName] = @{ Expr = $expr; Chosen = [System.Collections.Generic.HashSet[string]]::new([string[]]$chosen) }
+        }
+        $st.Column.HeaderTemplate = Get-HSHeaderTemplate -Active:($filters.ContainsKey($st.ColName))
+        Set-HSRowFilter $st.Table "$($st.Table.ExtendedProperties['hsText'])"
+        if ($ui.tabs.SelectedItem -and $ui.tabs.SelectedItem.Tag -eq $st.Table) { Set-HSFilter }
+        $st.Popup.IsOpen = $false
+    }
+    $state.Apply = $apply
+    $border.FindName('btnOk').Tag = $state
+    $border.FindName('btnClear').Tag = $state
+    $border.FindName('btnOk').Add_Click({ param($source, $evtArgs) & $source.Tag.Apply $source.Tag $false })
+    $border.FindName('btnClear').Add_Click({ param($source, $evtArgs) & $source.Tag.Apply $source.Tag $true })
+    $border.Add_KeyDown({
+            param($source, $evtArgs)
+            if ($evtArgs.Key -eq 'Return') { $evtArgs.Handled = $true; & $source.Tag.Apply $source.Tag $false }
+            elseif ($evtArgs.Key -eq 'Escape') { $evtArgs.Handled = $true; $source.Tag.Popup.IsOpen = $false }
+        })
+    $popup.IsOpen = $true
+    [void]$state.Search.Focus()
+}
+
+function New-HSGrid {
+    # DataGrid of the main tabs and of the detail lists: localized headers with column filter, number/date formats
+    $grid = New-Object System.Windows.Controls.DataGrid
+    $grid.IsReadOnly = $true
+    $grid.AutoGenerateColumns = $true
+    $grid.CanUserAddRows = $false
+    $grid.HeadersVisibility = 'Column'
+    $grid.GridLinesVisibility = 'Horizontal'
+    $grid.HorizontalGridLinesBrush = $Brush.ConvertFromString('#E6EAF0')
+    $grid.AlternatingRowBackground = $Brush.ConvertFromString('#F5F8FC')
+    $grid.SelectionUnit = 'CellOrRowHeader'
+    $grid.ClipboardCopyMode = 'IncludeHeader'
+    $grid.Add_AutoGeneratingColumn({
+            param($source, $evtArgs)
+            # string header (copied by Ctrl+C with the right text) shown through a template: no access-key handling of underscores
+            $evtArgs.Column.Header = $evtArgs.PropertyName
+            $filters = $source.ItemsSource.Table.ExtendedProperties['hsColFilter']
+            $evtArgs.Column.HeaderTemplate = Get-HSHeaderTemplate -Active:($filters -and $filters.ContainsKey($evtArgs.PropertyName))
+            if ($evtArgs.PropertyType -eq [datetime]) { $evtArgs.Column.Binding.StringFormat = 'yyyy-MM-dd HH:mm' }
+            elseif ($evtArgs.PropertyType -eq [double]) {
+                $evtArgs.Column.Binding.StringFormat = if ($evtArgs.PropertyName -match '_MB$|_GB$|\(GB\)') { 'N2' } else { '#,##0.##' }
+                $alignStyle = New-Object System.Windows.Style ([System.Windows.Controls.TextBlock])
+                $alignStyle.Setters.Add((New-Object System.Windows.Setter ([System.Windows.Controls.TextBlock]::TextAlignmentProperty), ([System.Windows.TextAlignment]::Right)))
+                $evtArgs.Column.ElementStyle = $alignStyle
+            }
+        })
+    # click on the ▾: no sort (the header is a button that sorts on mouse up), the filter opens on mouse up
+    $grid.Add_PreviewMouseLeftButtonDown({
+            param($source, $evtArgs)
+            $glyph = $evtArgs.OriginalSource
+            if ($glyph -is [System.Windows.Controls.TextBlock] -and "$($glyph.Tag)" -eq 'hsflt') { $evtArgs.Handled = $true }
+        })
+    $grid.Add_PreviewMouseLeftButtonUp({
+            param($source, $evtArgs)
+            $glyph = $evtArgs.OriginalSource
+            if ($glyph -is [System.Windows.Controls.TextBlock] -and "$($glyph.Tag)" -eq 'hsflt') {
+                $evtArgs.Handled = $true
+                $header = $glyph
+                while ($header -and -not ($header -is [System.Windows.Controls.Primitives.DataGridColumnHeader])) { $header = [System.Windows.Media.VisualTreeHelper]::GetParent($header) }
+                if ($header -and $header.Column) { Show-HSColumnFilter $source $header.Column $glyph }
+            }
+        })
+    $grid
+}
+
 function Show-HSTables {
     param($Tables, [string]$OverviewName)
     $ui.tabs.Items.Clear()
     foreach ($name in $Tables.Keys) {
         $dt = $Tables[$name]
-        $grid = New-Object System.Windows.Controls.DataGrid
-        $grid.IsReadOnly = $true
-        $grid.AutoGenerateColumns = $true
-        $grid.CanUserAddRows = $false
-        $grid.HeadersVisibility = 'Column'
-        $grid.GridLinesVisibility = 'Horizontal'
-        $grid.HorizontalGridLinesBrush = $Brush.ConvertFromString('#E6EAF0')
-        $grid.AlternatingRowBackground = $Brush.ConvertFromString('#F5F8FC')
-        $grid.SelectionUnit = 'CellOrRowHeader'
-        $grid.ClipboardCopyMode = 'IncludeHeader'
-        $grid.Add_AutoGeneratingColumn({
-                param($source, $evtArgs)
-                # string header (copied by Ctrl+C with the right text) shown through a TextBlock template: no access-key handling of underscores
-                if (-not $script:HS_HeaderTemplate) {
-                    $script:HS_HeaderTemplate = [System.Windows.Markup.XamlReader]::Parse('<DataTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"><TextBlock Text="{Binding}"/></DataTemplate>')
-                }
-                $evtArgs.Column.Header = $evtArgs.PropertyName
-                $evtArgs.Column.HeaderTemplate = $script:HS_HeaderTemplate
-                if ($evtArgs.PropertyType -eq [datetime]) { $evtArgs.Column.Binding.StringFormat = 'yyyy-MM-dd HH:mm' }
-                elseif ($evtArgs.PropertyType -eq [double]) {
-                    $evtArgs.Column.Binding.StringFormat = if ($evtArgs.PropertyName -match '_MB$|_GB$|\(GB\)') { 'N2' } else { '#,##0.##' }
-                    $alignStyle = New-Object System.Windows.Style ([System.Windows.Controls.TextBlock])
-                    $alignStyle.Setters.Add((New-Object System.Windows.Setter ([System.Windows.Controls.TextBlock]::TextAlignmentProperty), ([System.Windows.TextAlignment]::Right)))
-                    $evtArgs.Column.ElementStyle = $alignStyle
-                }
-            })
+        $grid = New-HSGrid
+        $grid.Tag = $name
         if ($name -eq $OverviewName) {
+            $grid.CanUserSortColumns = $false   # the order of the metrics (sections and their rows) is the content
             $grid.Add_LoadingRow({
                     param($source, $evtArgs)
                     $row = $evtArgs.Row.Item
@@ -4333,15 +4686,13 @@ function Show-HSTables {
                     else { $evtArgs.Row.FontWeight = 'Normal'; $evtArgs.Row.Background = $null }
                 })
         }
-        if (@($OverviewName, (T 'tab.licenses'), (T 'tab.history')) -notcontains $name) {
-            # double-click on a user row: user card
-            $grid.Add_MouseDoubleClick({
-                    param($source, $evtArgs)
-                    $item = $null
-                    try { $item = $evtArgs.OriginalSource.DataContext } catch { }
-                    if ($item -is [System.Data.DataRowView]) { Show-HSUserCard $item }
-                })
-        }
+        # double-click: user card, or the users behind the row (overview, licenses, fixes), or the row in a window
+        $grid.Add_MouseDoubleClick({
+                param($source, $evtArgs)
+                $item = $null
+                try { $item = $evtArgs.OriginalSource.DataContext } catch { }
+                if ($item -is [System.Data.DataRowView]) { Open-HSRowDetail $source $item }
+            })
         $grid.ItemsSource = $dt.DefaultView
         $tab = New-Object System.Windows.Controls.TabItem
         $hdr = New-Object System.Windows.Controls.TextBlock   # TextBlock: underscores are not eaten as access keys
@@ -4355,6 +4706,159 @@ function Show-HSTables {
     $ui.lblEmpty.Visibility = 'Collapsed'
     $ui.tabs.SelectedIndex = 0
     Set-HSFilter
+}
+
+# ---------------------------------------------------------------- double-click details (non-user tabs)
+function Open-HSRowDetail($Grid, $RowView) {
+    $name = "$($Grid.Tag)"
+    $data = $script:Data
+    if (-not $data) { return }
+    $det = $data.Details
+    $table = $RowView.Row.Table
+    $cell = { param($prop) $hdr = Get-HSHeader $prop; if ($table.Columns.Contains($hdr) -and -not ($RowView[$hdr] -is [DBNull])) { "$($RowView[$hdr])" } else { '' } }
+
+    if ($name -eq $data.OverviewName) {
+        $metricName = "$($RowView[0])"
+        if (-not $det -or -not $det.Overview) { Show-Msg (T 'det.noDetail') 'HybridScope' | Out-Null; return }
+        $byKey = $det.Overview[$metricName]
+        if (-not $byKey) { return }   # section title, or a number without a user list
+        $col = $Grid.CurrentCell.Column
+        $key = if ($col) { "$($col.Header)" } else { '' }
+        $totalKey = if ($det.TotalKey) { $det.TotalKey } else { T 'col.total' }
+        if (-not $key -or -not $byKey.ContainsKey($key)) { $key = $totalKey }
+        $title = if ($key -eq $totalKey) { $metricName } else { "$metricName - $key" }
+        Show-HSUserList $title @($byKey[$key]); return
+    }
+    if ($name -eq (T 'tab.licenses')) {
+        $sku = & $cell 'SKU'; $licName = & $cell 'Name'
+        if (-not $sku) { return }
+        $rows = if ($det -and $det.Licenses) { @($det.Licenses[$sku]) }
+        else { @($data.Users | Where-Object { $names = @("$($_.Licenses)" -split ', '); $names -contains $sku -or ($licName -and $names -contains $licName) }) }
+        Show-HSUserList ($(if ($licName) { "$licName ($sku)" } else { $sku })) @($rows | Where-Object { $_ }); return
+    }
+    if ($name -eq (T 'tab.fixes') -and $det -and $det.Fixes) {
+        $fixKey = "$(& $cell 'Type')|$(& $cell 'Fix')"
+        if ($det.Fixes.ContainsKey($fixKey)) { Show-HSUserList (& $cell 'Fix') @($det.Fixes[$fixKey]); return }
+    }
+    if ((& $cell 'Username') -or (& $cell 'UPN')) { Show-HSUserCard $RowView; return }
+    Show-HSRowCard $name $RowView
+}
+
+function Show-HSUserList([string]$Title, [object[]]$Rows) {
+    # the users behind a number: same columns as USERS, filter, Copy, double-click for the user card
+    $Rows = @($Rows | Where-Object { $_ })
+    if (-not $Rows.Count) { Show-Msg (T 'det.none') $Title | Out-Null; return }
+    $drop = @($script:Data.DropColumns | Where-Object { $_ })
+    if ($drop.Count) { $Rows = @($Rows | Select-Object * -ExcludeProperty $drop) }
+    $dt = ConvertTo-HSDataTable -Rows $Rows
+    $xaml = @"
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" Height="620" Width="1180" WindowStartupLocation="CenterOwner" Background="#F3F4F6" FontFamily="Segoe UI" FontSize="12">
+  <DockPanel>
+    <Border DockPanel.Dock="Top" Background="#0E2A47" Padding="16,10">
+      <DockPanel>
+        <Button Name="btnCopy" Content="$([System.Security.SecurityElement]::Escape((T 'card.copy')))" DockPanel.Dock="Right" VerticalAlignment="Center" Padding="14,4" Background="White" BorderBrush="#B8C2D0" Cursor="Hand"/>
+        <StackPanel VerticalAlignment="Center">
+          <TextBlock Name="lblTitle" Foreground="White" FontSize="18" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+          <TextBlock Name="lblSub" Foreground="#9FB4D9"/>
+        </StackPanel>
+      </DockPanel>
+    </Border>
+    <DockPanel DockPanel.Dock="Top" Margin="10,8,10,4">
+      <TextBlock Name="lblCount" DockPanel.Dock="Right" VerticalAlignment="Center" Foreground="#5A6B80" Margin="10,0,0,0"/>
+      <TextBlock Text="$([System.Security.SecurityElement]::Escape((T 'flt.search')))" VerticalAlignment="Center" Margin="0,0,6,0"/>
+      <TextBox Name="txtFilter" Padding="3,2"/>
+    </DockPanel>
+    <Border Name="host" Margin="10,0,10,10" Background="White" BorderBrush="#D5DCE5" BorderThickness="1"/>
+  </DockPanel>
+</Window>
+"@
+    $win = [System.Windows.Markup.XamlReader]::Parse($xaml)
+    $win.Owner = $Window
+    if ($Window.Icon) { $win.Icon = $Window.Icon }
+    $win.Title = "$Title - HybridScope"
+    $win.FindName('lblTitle').Text = $Title
+    $win.FindName('lblSub').Text = (T 'det.users' $Rows.Count) + '  ·  ' + (T 'det.hint')
+    $dt.ExtendedProperties['hsLabel'] = $win.FindName('lblCount')
+    $grid = New-HSGrid
+    $grid.Tag = (T 'tab.users')
+    $grid.ItemsSource = $dt.DefaultView
+    $grid.Add_MouseDoubleClick({
+            param($source, $evtArgs)
+            $item = $null
+            try { $item = $evtArgs.OriginalSource.DataContext } catch { }
+            if ($item -is [System.Data.DataRowView]) { Show-HSUserCard $item }
+        })
+    $win.FindName('host').Child = $grid
+    $win.Tag = $dt
+    $win.FindName('txtFilter').Add_TextChanged({ param($source, $evtArgs) Set-HSRowFilter ([System.Windows.Window]::GetWindow($source)).Tag $source.Text })
+    $win.FindName('btnCopy').Add_Click({
+            param($source, $evtArgs)
+            $view = ([System.Windows.Window]::GetWindow($source)).Tag.DefaultView
+            $sb = New-Object System.Text.StringBuilder
+            [void]$sb.AppendLine((@($view.Table.Columns | ForEach-Object { $_.ColumnName }) -join "`t"))
+            foreach ($drv in $view) { [void]$sb.AppendLine((@($drv.Row.ItemArray | ForEach-Object { if ($_ -is [datetime]) { $_.ToString('yyyy-MM-dd HH:mm') } else { "$_" } }) -join "`t")) }
+            try { [System.Windows.Clipboard]::SetText($sb.ToString()) } catch { }
+        })
+    $win.Add_KeyDown({ param($source, $evtArgs) if ($evtArgs.Key -eq 'Escape') { $source.Close() } })
+    Set-HSRowFilter $dt ''
+    $win.Show()
+}
+
+function Show-HSRowCard([string]$TabName, $RowView) {
+    # any other row (history, devices, ...): every field in a readable, selectable list
+    $table = $RowView.Row.Table
+    $xaml = @"
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" Height="560" Width="720" WindowStartupLocation="CenterOwner" Background="#F3F4F6" FontFamily="Segoe UI" FontSize="12">
+  <DockPanel>
+    <Border DockPanel.Dock="Top" Background="#0E2A47" Padding="16,10">
+      <DockPanel>
+        <Button Name="btnCopy" Content="$([System.Security.SecurityElement]::Escape((T 'card.copy')))" DockPanel.Dock="Right" VerticalAlignment="Center" Padding="14,4" Background="White" BorderBrush="#B8C2D0" Cursor="Hand"/>
+        <StackPanel VerticalAlignment="Center">
+          <TextBlock Name="lblTitle" Foreground="White" FontSize="18" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+          <TextBlock Name="lblSub" Foreground="#9FB4D9"/>
+        </StackPanel>
+      </DockPanel>
+    </Border>
+    <ScrollViewer Margin="10" VerticalScrollBarVisibility="Auto" Background="White">
+      <Grid Name="grdFields" Margin="12,8">
+        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" MaxWidth="260"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+      </Grid>
+    </ScrollViewer>
+  </DockPanel>
+</Window>
+"@
+    $win = [System.Windows.Markup.XamlReader]::Parse($xaml)
+    $win.Owner = $Window
+    if ($Window.Icon) { $win.Icon = $Window.Icon }
+    $first = @($RowView.Row.ItemArray | Where-Object { -not ($_ -is [DBNull]) -and "$_" -ne '' })[0]
+    $title = if ($first -is [datetime]) { $first.ToString('yyyy-MM-dd HH:mm') } else { "$first" }
+    $win.Title = "$title - HybridScope"
+    $win.FindName('lblTitle').Text = $title
+    $win.FindName('lblSub').Text = $TabName
+    $fields = $win.FindName('grdFields')
+    $sb = New-Object System.Text.StringBuilder
+    [void]$sb.AppendLine("$TabName - $title")
+    $i = 0
+    foreach ($column in $table.Columns) {
+        $value = $RowView.Row[$column]
+        $text = if ($value -is [DBNull]) { '' } elseif ($value -is [datetime]) { $value.ToString('yyyy-MM-dd HH:mm') } elseif ($value -is [double]) { $value.ToString('#,##0.##') } else { "$value" }
+        # long lists one per line
+        if ($text -match '[,;] ' -and @($text -split '[,;] ').Count -gt 3) { $text = ($text -split '[,;] ') -join "`n" }
+        $fields.RowDefinitions.Add((New-Object System.Windows.Controls.RowDefinition))
+        $label = New-Object System.Windows.Controls.TextBlock
+        $label.Text = $column.ColumnName; $label.FontWeight = 'SemiBold'; $label.Foreground = $Brush.ConvertFromString('#3A4A5E'); $label.Margin = '0,4,14,4'; $label.TextWrapping = 'Wrap'
+        $box = New-Object System.Windows.Controls.TextBox
+        $box.Text = $text; $box.IsReadOnly = $true; $box.BorderThickness = 0; $box.Background = $null; $box.TextWrapping = 'Wrap'; $box.Margin = '0,4,0,4'
+        [System.Windows.Controls.Grid]::SetRow($label, $i); [System.Windows.Controls.Grid]::SetRow($box, $i)
+        [System.Windows.Controls.Grid]::SetColumn($box, 1)
+        [void]$fields.Children.Add($label); [void]$fields.Children.Add($box)
+        [void]$sb.AppendLine("$($column.ColumnName): $($text -replace "`n", ', ')")
+        $i++
+    }
+    $win.Tag = $sb.ToString()
+    $win.FindName('btnCopy').Add_Click({ param($source, $evtArgs) try { [System.Windows.Clipboard]::SetText("$(([System.Windows.Window]::GetWindow($source)).Tag)") } catch { } })
+    $win.Add_KeyDown({ param($source, $evtArgs) if ($evtArgs.Key -eq 'Escape') { $source.Close() } })
+    $win.Show()
 }
 
 # ---------------------------------------------------------------- user card (double-click on a user)
@@ -5290,7 +5794,7 @@ $Window.Add_PreviewDrop({
     })
 
 function Start-HSUpdateCheck {
-    # GitHub is contacted only here, when the user asks
+    # Help > Check for updates: always answers (new / latest / error)
     if ($script:Job) { return }
     Start-HSJob -Title (T 'upd.checking') -Vars @{ HSRepo = $HS_Repo } -Script 'Get-HSLatestRelease -Repo $HSRepo' -OnDone {
         param($out, $err)
@@ -5309,6 +5813,42 @@ function Start-HSUpdateCheck {
     }
 }
 $ui.miUpdates.Add_Click({ Start-HSUpdateCheck })
+
+function Start-HSStartupUpdateCheck {
+    <#
+        At startup (CheckUpdatesAtStartup, default true): asks GitHub for the latest release in a separate
+        runspace, without blocking the window. Says something only when a newer version exists.
+    #>
+    if (-not $cfg.CheckUpdatesAtStartup) { return }
+    try {
+        $ps = [powershell]::Create()
+        [void]$ps.AddScript({
+                param($Repo)
+                [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+                try { [System.Net.WebRequest]::DefaultWebProxy.Credentials = [System.Net.CredentialCache]::DefaultNetworkCredentials } catch { }
+                $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/latest" -Headers @{ 'User-Agent' = 'HybridScope'; Accept = 'application/vnd.github+json' } -TimeoutSec 10
+                [pscustomobject]@{ Version = "$($release.tag_name)" -replace '^[vV]', ''; Url = "$($release.html_url)" }
+            }).AddArgument($HS_Repo)
+        $script:UpdCheck = @{ PS = $ps; Handle = $ps.BeginInvoke() }
+    }
+    catch { return }
+    $updTimer = New-Object System.Windows.Threading.DispatcherTimer
+    $updTimer.Interval = [TimeSpan]::FromMilliseconds(500)
+    $updTimer.Add_Tick({
+            param($source, $evtArgs)
+            $check = $script:UpdCheck
+            if (-not $check -or -not $check.Handle.IsCompleted) { return }
+            $source.Stop(); $script:UpdCheck = $null
+            $latest = $null
+            try { $latest = @($check.PS.EndInvoke($check.Handle))[-1] } catch { }   # offline, proxy, GitHub limits: silent
+            try { $check.PS.Dispose() } catch { }
+            if (-not $latest -or -not $latest.Version) { return }
+            if ((Compare-HSVersion $latest.Version $HS_Version) -gt 0) {
+                if ((Show-Msg (T 'upd.new' @($latest.Version, $HS_Version)) (T 'title.updates') 'YesNo' 'Information') -eq 'Yes') { Open-HSLink $(if ($latest.Url) { $latest.Url } else { $HS_Links.Releases }) }
+            }
+        })
+    $updTimer.Start()
+}
 
 $script:AboutXaml = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"

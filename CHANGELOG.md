@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.8.0 - 2026-11-26
+- **Double-click details on every tab**: a number in OVERVIEW opens the list of the users behind it (group column or TOTAL; e.g. *MFA per-user enforced*, a license, inactive users, Defender), a license in TENANT_LICENSES lists who has it, a fix in SECURITY_FIXES lists the users of the PCs it fixes, and any other row (HISTORY, DEVICES_UNASSIGNED, ...) opens in a window with all its fields. The user lists have search, column filters, *Copy* and double-click for the user card. **Saved reports** (also made by someone else, in either language): the lists are recomputed when the report is opened, from its USERS and SECURITY tabs with the same rules and the report's date; a number stays without list only if the report lacks the columns it needs (e.g. a preset export)
+- **Column filters** in every grid: click the ▾ next to a column name to choose the values to show (search, select all, blanks), Excel-style; a blue ▼ marks the filtered columns, the filters add up with the search box and the row count follows them
+- OVERVIEW columns can no longer be sorted: a click on a header used to mix sections and rows in alphabetical order
+- **Update check at startup**: when the GUI opens, HybridScope asks GitHub for the latest release in the background and shows a message only if a newer version exists (offline / up to date: nothing). New setting `CheckUpdatesAtStartup` (default `true`); not used by `-Auto`
+
 ## 1.7.0 - 2026-11-24
 - **Security (Microsoft Defender)**: new **Defender** box next to *Connect 365* (setting `Defender`). With the FULL content, Load data and `-Auto` also read Microsoft Defender for Business / Defender for Endpoint (read-only) for the users with a Defender license
 - Users are filtered by the **service plans** of their licenses (`DefenderLicensePlans`, default `MDE_SMB`, `MDE_LITE`, `WINDEFATP`): users with other licenses (e.g. Teams Essentials, Business Standard) and the PCs used only by them do not appear

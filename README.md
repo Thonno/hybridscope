@@ -223,10 +223,11 @@ The Defender API allows 100 calls per minute and HybridScope reads the logged-on
    - Options: one sheet per group, include OVERVIEW, enabled accounts only.
    - **Read only the data needed** (default on): with a preset / Custom, only the data those columns need is read, so the load is much faster; the top bar shows **PARTIAL LOAD**.
 
-8. **Work with the data**: search box (filters the current tab), sortable columns, copy with headers, **double-click a user** in any tab for the user card, **Export XLSX...** / **Export CSV...**, or export only the current tab.
+8. **Work with the data**: search box (filters the current tab), sortable columns, **column filters** (click the ▾ next to a column name: tick the values to show, e.g. one *Category* in ATTENTION; a blue ▼ marks the filtered columns), copy with headers, **double-click a user** in any tab for the user card, **Export XLSX...** / **Export CSV...**, or export only the current tab.
+   **Double-click on the other tabs**: a number in OVERVIEW (e.g. *MFA per-user enforced*, in a group column or in TOTAL) or a license in TENANT_LICENSES opens the list of those users; a fix in SECURITY_FIXES lists the users of the PCs it fixes; any other row (HISTORY, DEVICES_UNASSIGNED, ...) opens with all its fields. In the lists, double-click a user for the user card.
 9. **Later**: **File > Open report** (Ctrl+O) or drag an `.xlsx` / CSV folder onto the window to browse a saved report without connecting, e.g. the daily `HybridScope_LATEST.xlsx`.
 
-Language: top-right menu (restart required). **Help > Check for updates** compares with the latest release.
+Language: top-right menu (restart required). At startup HybridScope checks GitHub in the background and asks only if a newer version exists (`CheckUpdatesAtStartup`, default `true`); **Help > Check for updates** checks on request.
 
 ---
 
@@ -415,6 +416,7 @@ Created on first run; most values are also set from the window. `config.sample.j
 | `ExportGroupSheets`, `ExportOverview`, `ExportEnabledOnly` | `false` | One sheet per group, include OVERVIEW, enabled accounts only |
 | `ExportPresets` | `{}` | Your presets, saved by the export window |
 | `ExportFastLoad` | `true` | With a preset / Custom read only the data needed |
+| `CheckUpdatesAtStartup` | `true` | Check for a new release when the GUI opens (silent if offline or up to date) |
 | `AutoExportPreset` | `Full` | Content of the `-Auto` report |
 | **Microsoft Defender** | | |
 | `Defender` | `false` | Read Defender (GUI box **Defender**); only with FULL content. Edit `config.json` with HybridScope closed: the window saves its own copy |
@@ -521,7 +523,7 @@ Get-ChildItem C:\HybridScope -Recurse | Unblock-File
 
 **Does it change anything?** No. Every call is read-only. The only exception is installing missing PowerShell modules, and only if you agree.
 
-**Where is my data sent?** Nowhere. HybridScope talks only to your AD, your Exchange server, Microsoft Graph and the Defender API. Reports stay on your disk. **Help > Check for updates**, only when you click it, reads the latest release number from the public GitHub API.
+**Where is my data sent?** Nowhere. HybridScope talks only to your AD, your Exchange server, Microsoft Graph and the Defender API. Reports stay on your disk. The update check (at GUI startup, unless `CheckUpdatesAtStartup` is `false`, and **Help > Check for updates**) only reads the latest release number from the public GitHub API: nothing is sent.
 
 **Do I need Intune for the security tabs?** No. The PCs must be onboarded to Defender; HybridScope finds their users from the logons Defender records.
 
